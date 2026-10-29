@@ -30,7 +30,7 @@ TypeScript everywhere, pnpm workspaces monorepo. Fastify + Zod API as a **modula
 ```
 apps/web          React UI + AG Studio dashboard
 apps/api          Fastify API (modules: intake, catalog, payments, approvals, audit, webhooks)
-packages/policy   Pure TS policy engine (no I/O, no LLM), fully unit-tested
+packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils
 packages/evals    Scenarios, fakes (PayPal, Channel3), fixtures, runner, results/

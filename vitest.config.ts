@@ -14,6 +14,7 @@ export default defineConfig({
         'packages/llm/src/**': { lines: 90, branches: 90 },
         'packages/shared/src/quarantine.ts': { lines: 90, branches: 90 },
         'packages/shared/src/money.ts': { lines: 90, branches: 90 },
+        'packages/policy/src/**': { lines: 95, branches: 95 },
       },
     },
   },
