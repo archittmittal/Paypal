@@ -1,0 +1,17 @@
+{
+  "name": "@mandate/payments",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "spike": "node --env-file-if-exists=../../.env --import ./smoke/resolve-ts.ts smoke/spike.ts"
+  },
+  "dependencies": {
+    "@mandate/shared": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
