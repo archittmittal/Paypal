@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // The API runs on Node's built-in type stripping, which rejects enums, namespaces and parameter properties.
+  "compilerOptions": { "erasableSyntaxOnly": true },
+  "include": ["src", "test", "scripts"]
+}
