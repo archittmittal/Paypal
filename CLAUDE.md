@@ -36,7 +36,8 @@ packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils
 packages/payments PayPal Orders v2 sandbox client (the ONLY PayPal caller) + Gate 1 spike script
 packages/evals    Scenarios, fakes (PayPal, Channel3), fixtures, runner, results/
-docs/             architecture, uml, er-diagram, tech-stack, adr/
+docs/             architecture, uml, er-diagram, tech-stack, deploy (Render runbook), adr/
+render.yaml       Render Blueprint: API web service + Postgres (secrets are sync: false)
 ```
 
 ## Commands
