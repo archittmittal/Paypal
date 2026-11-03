@@ -1,0 +1,48 @@
+# Dependabot: weekly version updates for npm (pnpm workspace) and GitHub Actions.
+# Security updates are separate and need "Dependabot security updates" turned on in repo settings.
+# Docs: https://docs.github.com/en/code-security/dependabot/working-with-dependabot/dependabot-options-reference
+version: 2
+updates:
+  - package-ecosystem: npm
+    # Root of the pnpm workspace; Dependabot reads pnpm-lock.yaml and updates every workspace package.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    # Keep exact pins (tests/workspace.test.ts requires exact root devDependency versions).
+    versioning-strategy: increase
+    # Supply-chain guard: skip releases younger than this, matching the pnpm release-age policy spirit.
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    labels: ["type: chore", "area: infra"]
+    groups:
+      # One PR per week for routine dev tooling instead of one per package.
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+      runtime-minor-patch:
+        dependency-type: production
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Kolkata
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    labels: ["type: chore", "area: infra"]
+    groups:
+      actions:
+        patterns: ["*"]

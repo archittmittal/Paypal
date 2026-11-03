@@ -1,0 +1,29 @@
+name: Dependency review
+
+# Blocks a PR that adds a dependency with a known vulnerability or a disallowed licence.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          # Copyleft licences would conflict with how the repo is licensed and judged.
+          deny-licenses: GPL-2.0-only, GPL-3.0-only, AGPL-3.0-only, AGPL-3.0-or-later
+          # CI tools that only run in GitHub Actions are not shipped with the app, so their licence does not
+          # reach our code. TruffleHog (AGPL-3.0) is the secret scanner in secret-scan.yml.
+          allow-dependencies-licenses: pkg:githubactions/trufflesecurity/trufflehog
+          # The result is in the job summary. A PR comment would need a write token, which PRs from forks never get.
+          comment-summary-in-pr: never
