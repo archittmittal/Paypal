@@ -20,12 +20,12 @@ describe('loadApiConfig', () => {
 
   it('reads an optional DATABASE_URL', () => {
     expect(loadApiConfig({}).databaseUrl).toBeUndefined();
-    expect(loadApiConfig({ DATABASE_URL: 'postgresql://u:p@db:5432/x' }).databaseUrl).toBe('postgresql://u:p@db:5432/x');
+    expect(loadApiConfig({ DATABASE_URL: 'postgresql://db.example.invalid:5432/mandate' }).databaseUrl).toBe('postgresql://db.example.invalid:5432/mandate');
   });
 
   it('rejects a DATABASE_URL that is not postgres, without printing it', () => {
-    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://u:hunter2@db/x' })).toThrow('Invalid API configuration: DATABASE_URL');
-    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://u:hunter2@db/x' })).not.toThrow(/hunter2/);
+    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://db.example.invalid/LEAK-MARKER' })).toThrow('Invalid API configuration: DATABASE_URL');
+    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://db.example.invalid/LEAK-MARKER' })).not.toThrow(/LEAK-MARKER/);
   });
 
   it('ignores unrelated variables', () => {

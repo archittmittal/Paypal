@@ -95,7 +95,7 @@ describe('createPgDb', () => {
 
 describe('createPgPool', () => {
   it('creates a bounded pool without connecting', async () => {
-    const pool = createPgPool('postgres://user:pw@127.0.0.1:1/none');
+    const pool = createPgPool('postgres://127.0.0.1:1/none');
     expect(pool.options.max).toBe(POOL_MAX);
     await pool.end();
   });

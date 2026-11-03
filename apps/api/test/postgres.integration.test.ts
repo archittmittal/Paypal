@@ -31,7 +31,7 @@ describe.skipIf(!url)('Postgres integration', () => {
     for (let i = 0; i < 20; i += 1) {
       const request = await db.query<{ id: string }>(
         'INSERT INTO purchase_request (mandate_id, requester_user_id, raw_text, request_key) VALUES ($1, $2, $3, $4) RETURNING id',
-        [DEMO_IDS.mandate, DEMO_IDS.requester, 'race', `race-${i}`],
+        [DEMO_IDS.mandate, DEMO_IDS.requester, 'race', `race-key-${i}`],
       );
       const decision = await db.query<{ id: string }>(
         `INSERT INTO policy_decision (purchase_request_id, outcome, reasons, policy_version, evaluated_total_minor_units, currency, decided_at)
