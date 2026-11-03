@@ -1,0 +1,10 @@
+# Code owners for Mandate. GitHub requests a review from these owners on every pull request
+# that touches a matching path. Later rules override earlier ones for the same file.
+# Owners need write access to this repository; see:
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: the core team owns everything.
+*                      @purvanshjoshi @archittmittal @AnubhavKiroula
+
+# Ownership rules themselves and CI must always be reviewed by the core team.
+/.github/              @purvanshjoshi @archittmittal @AnubhavKiroula
