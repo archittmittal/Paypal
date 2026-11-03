@@ -29,7 +29,8 @@ TypeScript everywhere, pnpm workspaces monorepo. Fastify + Zod API as a **modula
 ## Repo map (planned; update as it changes)
 ```
 apps/web          React UI + AG Studio dashboard
-apps/api          Fastify API: health/ready, error handling, config (modules to come: intake, catalog, payments, approvals, audit, webhooks)
+apps/api          Fastify API: health/ready, error handling, config; Postgres migrations (apps/api/migrations), budget reservations, seed
+                  (modules to come: intake, catalog, payments, approvals, audit, webhooks)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils
@@ -39,8 +40,8 @@ docs/             architecture, uml, er-diagram, tech-stack, adr/
 ```
 
 ## Commands
-Real: `pnpm install` · `pnpm dev` (API on :3000, watch mode) · `pnpm lint` · `pnpm typecheck` · `pnpm test` (Vitest + coverage) · `pnpm smoke:offline` (runs each package's offline smoke, CI) · `pnpm smoke:live` (packages that call a real provider; never CI) · `pnpm --filter @mandate/payments spike <cmd>` (real PayPal sandbox; see packages/payments/smoke/spike.ts).
-Planned: `pnpm eval` · `docker compose up -d` (Postgres, Elasticsearch).
+Real: `pnpm install` · `docker compose up -d` (Postgres) · `pnpm db:migrate` · `pnpm db:seed` · `pnpm dev` (API on :3000, watch mode) · `pnpm lint` · `pnpm typecheck` · `pnpm test` (Vitest + coverage) · `pnpm smoke:offline` (runs each package's offline smoke, CI) · `pnpm smoke:live` (packages that call a real provider; never CI) · `pnpm --filter @mandate/payments spike <cmd>` (real PayPal sandbox; see packages/payments/smoke/spike.ts).
+Planned: `pnpm eval` · Elasticsearch in compose (optional profile).
 
 ## Git workflow
 - `origin` = our **fork**. `upstream` = the main team repo. Branch from `upstream/main`.

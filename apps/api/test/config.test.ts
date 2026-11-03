@@ -18,6 +18,16 @@ describe('loadApiConfig', () => {
     expect(loadApiConfig({ PORT: '', HOST: '', LOG_LEVEL: '' })).toEqual(loadApiConfig({}));
   });
 
+  it('reads an optional DATABASE_URL', () => {
+    expect(loadApiConfig({}).databaseUrl).toBeUndefined();
+    expect(loadApiConfig({ DATABASE_URL: 'postgresql://u:p@db:5432/x' }).databaseUrl).toBe('postgresql://u:p@db:5432/x');
+  });
+
+  it('rejects a DATABASE_URL that is not postgres, without printing it', () => {
+    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://u:hunter2@db/x' })).toThrow('Invalid API configuration: DATABASE_URL');
+    expect(() => loadApiConfig({ DATABASE_URL: 'mysql://u:hunter2@db/x' })).not.toThrow(/hunter2/);
+  });
+
   it('ignores unrelated variables', () => {
     expect(loadApiConfig({ PAYPAL_CLIENT_SECRET: 'x', PATH: '/usr/bin' }).port).toBe(3000);
   });

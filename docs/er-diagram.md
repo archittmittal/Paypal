@@ -57,6 +57,9 @@ erDiagram
     text currency
     bigint per_item_cap_minor_units
     bigint approval_threshold_minor_units
+    integer max_quantity_per_line
+    integer structuring_window_minutes
+    integer price_drift_tolerance_bps
     timestamptz starts_at
     timestamptz ends_at
     text status
@@ -211,6 +214,8 @@ erDiagram
   }
 ```
 
+> **Implemented in [`apps/api/migrations/0001_init.sql`](../apps/api/migrations/0001_init.sql).** Differences from the diagram: `USER` and `ORDER` are reserved words in SQL, so the tables are `app_user` and `payment_order`; append-only tables are enforced by triggers (which hold for every role) rather than grants; amount and state rules are `CHECK` constraints, including `cart.total = subtotal + shipping + tax`, `cart_item.line_total = unit_price * quantity` and `product_snapshot.text_quarantined = true`.
+
 ## 2. Column notes
 
 Only the columns that carry a rule or a constraint worth arguing about. Types are Postgres types.
@@ -230,6 +235,9 @@ Only the columns that carry a rule or a constraint worth arguing about. Types ar
 | `mandate.per_item_cap_minor_units` | `bigint` | Applies to `cart_item.line_total_minor_units`, not to the unit price |
 | `mandate.approval_threshold_minor_units` | `bigint` | At or above this cart total, outcome is `NEEDS_APPROVAL` |
 | `mandate.policy_version` | `text` | The engine version in force when the mandate was written; decisions record their own version too, so a mid-project engine change is traceable |
+| `mandate.max_quantity_per_line` | `integer` | Plausibility ceiling per cart line; above it the policy engine denies with `QUANTITY_IMPLAUSIBLE` |
+| `mandate.structuring_window_minutes` | `integer` | Look-back window for split-purchase detection (`STRUCTURING_SUSPECTED`) |
+| `mandate.price_drift_tolerance_bps` | `integer` | Allowed price rise between decision and capture, in basis points; checked by `checkPriceDrift()` |
 | `category_limit.allowed` | `boolean` | `false` is an explicit block, distinct from "no limit configured". Absence of a row means the category is not in the allow-list |
 
 ### PURCHASE_REQUEST, PRODUCT_SNAPSHOT

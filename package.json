@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "pnpm --filter @mandate/api dev",
+    "db:migrate": "pnpm --filter @mandate/api db:migrate",
+    "db:seed": "pnpm --filter @mandate/api db:seed",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
     "test": "vitest run --coverage",

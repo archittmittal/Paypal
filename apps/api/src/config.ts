@@ -7,12 +7,15 @@ const ApiEnvSchema = z.object({
   // Loopback by default so a laptop never exposes the API by accident. Render sets HOST=0.0.0.0.
   HOST: z.string().min(1).default('127.0.0.1'),
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
+  // Optional until the routes that need Postgres land; the API starts without it. Contains a password.
+  DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\/\S+$/).optional(),
 });
 
 export interface ApiConfig {
   port: number;
   host: string;
   logLevel: (typeof LOG_LEVELS)[number];
+  databaseUrl?: string;
 }
 
 /** Names the invalid variables only. Values never appear in the message: some of them will be secrets. */
@@ -33,5 +36,6 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (!result.success) {
     throw new ApiConfigError([...new Set(result.error.issues.map((issue) => String(issue.path[0])))]);
   }
-  return { port: result.data.PORT, host: result.data.HOST, logLevel: result.data.LOG_LEVEL };
+  const { PORT, HOST, LOG_LEVEL, DATABASE_URL } = result.data;
+  return { port: PORT, host: HOST, logLevel: LOG_LEVEL, ...(DATABASE_URL === undefined ? {} : { databaseUrl: DATABASE_URL }) };
 }
