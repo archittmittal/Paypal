@@ -11,6 +11,7 @@
     "db:seed": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/db.ts seed"
   },
   "dependencies": {
+    "@mandate/payments": "workspace:*",
     "@mandate/policy": "workspace:*",
     "@mandate/shared": "workspace:*",
     "fastify": "5.12.7",
