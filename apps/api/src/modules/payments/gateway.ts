@@ -1,5 +1,12 @@
 import { addMoney, type Money } from '@mandate/shared';
-import { PaymentError, type OrderSummary, type PaypalClient } from '@mandate/payments';
+import {
+  type FetchLike,
+  loadPaypalConfig,
+  PaymentError,
+  PaypalClient,
+  PaypalConfigError,
+  type OrderSummary,
+} from '@mandate/payments';
 import { GatewayError, type GatewayOrder, type PaymentGateway } from '../purchases/ports.js';
 
 type ClientSurface = Pick<PaypalClient, 'createOrder' | 'captureOrder' | 'getOrder' | 'verifyWebhookSignature'>;
@@ -63,4 +70,24 @@ async function mapErrors<T>(run: () => Promise<T>): Promise<T> {
     // Anything unclassified after a money-moving call could have reached PayPal: treat it as unknown.
     throw new GatewayError('UNKNOWN_OUTCOME', 'UNCLASSIFIED');
   }
+}
+
+export type PaypalGatewayFromEnv =
+  | { ok: true; gateway: PaypalGateway; webhooksEnabled: boolean }
+  | { ok: false; variables: readonly string[] };
+
+/**
+ * Builds the gateway from the environment. Lives here because only this module may import @mandate/payments.
+ * Invalid or missing configuration returns the variable names only, never their values.
+ */
+export function paypalGatewayFromEnv(env: Readonly<Record<string, string | undefined>>, fetchImpl?: FetchLike): PaypalGatewayFromEnv {
+  let config;
+  try {
+    config = loadPaypalConfig(env);
+  } catch (error) {
+    if (error instanceof PaypalConfigError) return { ok: false, variables: error.variables };
+    throw error;
+  }
+  const client = new PaypalClient({ config, ...(fetchImpl ? { fetch: fetchImpl } : {}) });
+  return { ok: true, gateway: new PaypalGateway(client), webhooksEnabled: config.webhookId !== undefined };
 }

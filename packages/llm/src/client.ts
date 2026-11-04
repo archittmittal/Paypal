@@ -72,8 +72,12 @@ export class LlmClient {
   private readonly random: () => number;
   private readonly nonceSource: NonceSource;
   private readonly ceiling: number;
+  // An explicit field, not a parameter property: apps/api runs this source on Node type stripping,
+  // which only accepts erasable syntax.
+  private readonly options: LlmClientOptions;
 
-  constructor(private readonly options: LlmClientOptions) {
+  constructor(options: LlmClientOptions) {
+    this.options = options;
     this.adapter = options.adapter;
     this.logger = options.logger ?? noopLogger;
     this.clock = options.clock ?? systemClock;

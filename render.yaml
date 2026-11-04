@@ -38,6 +38,10 @@ services:
         sync: false
       - key: PAYPAL_CANCEL_URL
         sync: false
+      # Id of the webhook registered on the sandbox app for https://<service>/webhooks/paypal. Without it the
+      # webhook route is not registered; the reconcile job still settles orders by polling PayPal.
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
       # LLM provider key (packages/llm).
       - key: ANTHROPIC_API_KEY
         sync: false
