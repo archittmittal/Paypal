@@ -17,6 +17,23 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Real Postgres for apps/api/test/postgres.integration.test.ts (concurrent budget reservations).
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: mandate
+          POSTGRES_PASSWORD: mandate
+          POSTGRES_DB: mandate_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mandate -d mandate_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://mandate:mandate@localhost:5432/mandate_test
     steps:
       # Actions are pinned to full commit SHAs (tag in the comment); Dependabot keeps them current.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

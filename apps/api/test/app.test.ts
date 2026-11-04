@@ -43,13 +43,13 @@ describe('readiness', () => {
   it('returns 503 naming the failed check without leaking its error', async () => {
     const res = await (
       await build([
-        { name: 'postgres', check: () => Promise.reject(new Error('postgres://user:hunter2@db/x refused')) },
+        { name: 'postgres', check: () => Promise.reject(new Error('connect ECONNREFUSED db.internal:5432 LEAK-MARKER')) },
         { name: 'other', check: () => Promise.resolve() },
       ])
     ).inject({ method: 'GET', url: '/ready' });
     expect(res.statusCode).toBe(503);
     expect(res.json()).toEqual({ status: 'not_ready', checks: { postgres: 'fail', other: 'ok' } });
-    expect(res.body).not.toContain('hunter2');
+    expect(res.body).not.toContain('LEAK-MARKER');
   });
 
   it('fails a check that does not answer in time', async () => {
