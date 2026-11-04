@@ -21,7 +21,17 @@ const STATUS: Record<PurchaseErrorCode, number> = {
   REQUEST_KEY_CONFLICT: 409,
   INVALID_STATE: 409,
   PAYMENT_NOT_CAPTURABLE: 409,
+  APPROVAL_NOT_FOUND: 404,
+  APPROVAL_ALREADY_DECIDED: 409,
+  APPROVAL_EXPIRED: 410,
 };
+
+// The token travels in the body, never in a URL, so it does not end up in access logs or browser history.
+const ApprovalDecisionSchema = z.strictObject({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  decision: z.enum(['APPROVE', 'REJECT']),
+  channel: z.enum(['email', 'slack', 'dashboard', 'zapier']).default('zapier'),
+});
 
 function sendPurchaseError(error: unknown, request: FastifyRequest, reply: FastifyReply): FastifyReply {
   if (!(error instanceof PurchaseError)) throw error;
@@ -45,6 +55,15 @@ export function purchaseRoutes(service: PurchaseService) {
       const { purchaseId } = parseRequest(PurchaseParamsSchema, request.params);
       try {
         return await reply.send(await service.get(purchaseId));
+      } catch (error) {
+        return sendPurchaseError(error, request, reply);
+      }
+    });
+
+    app.post('/approvals/decision', async (request, reply) => {
+      const body = parseRequest(ApprovalDecisionSchema, request.body);
+      try {
+        return await reply.send(await service.decideApproval(body.token, body.decision, body.channel));
       } catch (error) {
         return sendPurchaseError(error, request, reply);
       }

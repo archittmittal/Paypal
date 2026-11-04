@@ -1,11 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { evaluate, type Reason } from '@mandate/policy';
+import { checkPriceDrift, evaluate, type Reason } from '@mandate/policy';
 import { PurchaseIntentSchema, type Money } from '@mandate/shared';
 import { toBigInt, type Db, type Queryable } from '../../db/db.js';
 import { commitReservation, releaseReservation, reserveBudget } from '../../db/reservations.js';
 import { buildCart, type SnapshotRef } from './cart.js';
 import { loadHistory, lockMandate } from './policy-inputs.js';
-import { GatewayError, type Catalog, type IntentParser, type PaymentGateway, type Ranker } from './ports.js';
+import { GatewayError, type ApprovalNotifier, type Catalog, type IntentParser, type PaymentGateway, type Ranker } from './ports.js';
 
 export type PurchaseStatus =
   | 'RECEIVED'
@@ -14,6 +14,8 @@ export type PurchaseStatus =
   | 'QUOTED'
   | 'DENIED'
   | 'PENDING_APPROVAL'
+  | 'REJECTED'
+  | 'EXPIRED'
   | 'PAYMENT_PENDING'
   | 'UNKNOWN_OUTCOME'
   | 'CAPTURED'
@@ -25,7 +27,10 @@ export type PurchaseErrorCode =
   | 'REQUESTER_NOT_ALLOWED'
   | 'REQUEST_KEY_CONFLICT'
   | 'INVALID_STATE'
-  | 'PAYMENT_NOT_CAPTURABLE';
+  | 'PAYMENT_NOT_CAPTURABLE'
+  | 'APPROVAL_NOT_FOUND'
+  | 'APPROVAL_ALREADY_DECIDED'
+  | 'APPROVAL_EXPIRED';
 
 export class PurchaseError extends Error {
   readonly code: PurchaseErrorCode;
@@ -66,8 +71,41 @@ export interface PurchaseServiceDeps {
   catalog: Catalog;
   ranker: Ranker;
   payments: PaymentGateway;
+  /** Sends the approver their single-use link (Zapier, #26). Without one, approvals can only expire. */
+  approvalNotifier?: ApprovalNotifier;
   now?: () => Date;
 }
+
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+interface ApprovalRow {
+  id: string;
+  status: string;
+  expires_at: Date | string;
+  approver_user_id: string;
+  policy_decision_id: string;
+  request_id: string;
+  mandate_id: string;
+  requester_user_id: string;
+  organization_id: string;
+  amount_minor_units: unknown;
+  currency: string;
+  price_drift_tolerance_bps: number;
+  reservation_id: string;
+}
+
+const APPROVAL_SELECT = `
+  SELECT a.id, a.status, a.expires_at, a.approver_user_id, a.policy_decision_id,
+         pr.id AS request_id, pr.mandate_id, pr.requester_user_id, m.organization_id,
+         pd.evaluated_total_minor_units AS amount_minor_units, pd.currency, m.price_drift_tolerance_bps,
+         br.id AS reservation_id
+    FROM approval a
+    JOIN purchase_request pr ON pr.id = a.purchase_request_id
+    JOIN mandate m ON m.id = pr.mandate_id
+    JOIN policy_decision pd ON pd.id = a.policy_decision_id
+    JOIN budget_reservation br ON br.policy_decision_id = a.policy_decision_id`;
 
 /** After a money-moving call starts, an error we cannot classify is an unknown outcome, never a safe failure. */
 function asGatewayError(error: unknown): GatewayError {
@@ -394,28 +432,227 @@ export class PurchaseService {
       if (!reserved.ok) throw new Error(`Reservation refused after ${decision.outcome}: ${reserved.reason}`);
 
       if (decision.outcome === 'NEEDS_APPROVAL') {
-        // The link token itself is issued by the approvals module (#13); only a hash is ever stored.
-        await tx.query(
+        // Single-use link token: only its hash is stored, and the plain token leaves this process once,
+        // through the notifier (Zapier, #26).
+        const token = randomBytes(32).toString('base64url');
+        const approval = await tx.query<{ id: string }>(
           `INSERT INTO approval (purchase_request_id, policy_decision_id, approver_user_id, token_hash, expires_at)
-           SELECT $1, $2, approver_user_id, $3, $4 FROM mandate WHERE id = $5`,
-          [ctx.requestId, decisionId, createHash('sha256').update(randomBytes(32)).digest('hex'), expiresAt, ctx.mandateId],
+           SELECT $1, $2, approver_user_id, $3, $4 FROM mandate WHERE id = $5 RETURNING id`,
+          [ctx.requestId, decisionId, hashToken(token), expiresAt, ctx.mandateId],
         );
         await this.#setStatus(tx, ctx.requestId, 'PENDING_APPROVAL');
-        return undefined;
+        return {
+          kind: 'approval' as const,
+          approvalId: approval.rows[0]?.id ?? '',
+          token,
+          expiresAt,
+          amount: decision.evaluatedTotal,
+          reasons: decision.reasons,
+        };
       }
 
-      const order = await tx.query<{ id: string }>(
-        `INSERT INTO payment_order (purchase_request_id, policy_decision_id, idempotency_key, state, payment_variant, amount_minor_units, currency)
-         VALUES ($1, $2, $3, 'PAYMENT_PENDING', 'APPROVAL_LINK', $4, $5) RETURNING id`,
-        [ctx.requestId, decisionId, `pay-${decisionId}`, decision.evaluatedTotal.amountMinor, decision.evaluatedTotal.currency],
-      );
-      const orderId = order.rows[0]?.id ?? '';
-      await this.#event(tx, orderId, 'created', null, 'PAYMENT_PENDING', {});
-      await this.#setStatus(tx, ctx.requestId, 'PAYMENT_PENDING');
-      return { orderId, decisionId, reservationId: reserved.reservationId, amount: decision.evaluatedTotal };
+      const orderId = await this.#openOrder(tx, ctx, decisionId, decision.evaluatedTotal);
+      return { kind: 'order' as const, orderId, decisionId, reservationId: reserved.reservationId, amount: decision.evaluatedTotal };
     });
 
-    if (decided) await this.#createPayment(ctx, decided);
+    if (decided?.kind === 'order') await this.#createPayment(ctx, decided);
+    if (decided?.kind === 'approval') await this.#notifyApprover(ctx, decided);
+  }
+
+  /**
+   * Applies the approver's decision. The token is the only credential: single use, stored as a hash,
+   * checked against expiry server-side. An approval leads to payment only after a re-quote passes the
+   * mandate's price-drift tolerance, so the approved amount is the paid amount (failure mode 3).
+   */
+  async decideApproval(token: string, decision: 'APPROVE' | 'REJECT', channel: string): Promise<PurchaseView> {
+    const { db, catalog } = this.#deps;
+    const tokenHash = hashToken(token);
+    const found = await this.#approvalByHash(db, tokenHash);
+    if (!found) throw new PurchaseError('APPROVAL_NOT_FOUND');
+
+    // Re-quote outside the transaction: a network call must never hold the mandate or approval lock.
+    let requotedTotal: Money | undefined;
+    if (decision === 'APPROVE' && found.status === 'PENDING' && catalog.requote) {
+      requotedTotal = await this.#requote(found.request_id).catch(() => undefined);
+    }
+
+    const result = await db.transaction(async (tx) => {
+      const approval = await this.#approvalByHash(tx, tokenHash, true);
+      if (!approval) throw new PurchaseError('APPROVAL_NOT_FOUND');
+      if (approval.status !== 'PENDING') throw new PurchaseError('APPROVAL_ALREADY_DECIDED');
+      const ctx: Context = {
+        requestId: approval.request_id,
+        mandateId: approval.mandate_id,
+        organizationId: approval.organization_id,
+        requesterUserId: approval.requester_user_id,
+      };
+      const now = this.#now();
+      if (new Date(approval.expires_at).getTime() <= now.getTime()) {
+        await this.#closeApproval(tx, ctx, approval, 'EXPIRED', now);
+        return { kind: 'expired' as const };
+      }
+      if (decision === 'REJECT') {
+        await this.#closeApproval(tx, ctx, approval, 'REJECTED', now, channel);
+        return { kind: 'done' as const, requestId: ctx.requestId };
+      }
+
+      const approved: Money = { amountMinor: Number(toBigInt(approval.amount_minor_units)), currency: approval.currency };
+      await tx.query("UPDATE approval SET status = 'APPROVED', decided_at = $2, channel = $3 WHERE id = $1", [approval.id, now, channel]);
+      await this.#audit(tx, ctx, 'user', approval.approver_user_id, 'approval.approved', { channel });
+
+      const drift = requotedTotal
+        ? checkPriceDrift(approved, requotedTotal, approval.price_drift_tolerance_bps)
+        : catalog.requote
+          ? // The re-quote failed: without a fresh price there is no safe amount to pay.
+            { code: 'PRICE_DRIFT' as const }
+          : null;
+      if (drift) {
+        await releaseReservation(tx, approval.reservation_id, now);
+        await tx.query("UPDATE purchase_request SET status = 'FAILED', failure_code = 'PRICE_DRIFT' WHERE id = $1", [ctx.requestId]);
+        await this.#audit(tx, ctx, 'system', null, 'payment.price_drift', { approved, requoted: requotedTotal ?? null });
+        return { kind: 'done' as const, requestId: ctx.requestId };
+      }
+
+      const orderId = await this.#openOrder(tx, ctx, approval.policy_decision_id, approved, approval.id);
+      return {
+        kind: 'order' as const,
+        ctx,
+        order: { orderId, decisionId: approval.policy_decision_id, reservationId: approval.reservation_id, amount: approved },
+      };
+    });
+
+    if (result.kind === 'expired') throw new PurchaseError('APPROVAL_EXPIRED');
+    if (result.kind === 'order') {
+      await this.#createPayment(result.ctx, result.order);
+      return this.get(result.ctx.requestId);
+    }
+    return this.get(result.requestId);
+  }
+
+  /**
+   * Releases budget that nobody will use: approvals past their deadline, and orders the buyer never approved
+   * before the reservation expired. Run periodically. Returns how many requests it closed.
+   */
+  async sweepExpired(): Promise<number> {
+    const { db } = this.#deps;
+    const now = this.#now();
+    const stale = await db.query<{ request_id: string }>(
+      `SELECT a.purchase_request_id AS request_id FROM approval a WHERE a.status = 'PENDING' AND a.expires_at <= $1
+       UNION
+       SELECT o.purchase_request_id FROM payment_order o
+         JOIN budget_reservation br ON br.policy_decision_id = o.policy_decision_id
+        WHERE o.state = 'PAYMENT_PENDING' AND br.state = 'HELD' AND br.expires_at <= $1`,
+      [now],
+    );
+    let closed = 0;
+    for (const { request_id: requestId } of stale.rows) {
+      const did = await db.transaction(async (tx) => {
+        const approval = await this.#approvalByRequest(tx, requestId);
+        if (approval?.status === 'PENDING' && new Date(approval.expires_at).getTime() <= now.getTime()) {
+          await this.#closeApproval(tx, this.#ctxOf(approval), approval, 'EXPIRED', now);
+          return true;
+        }
+        const order = await tx.query<{ id: string; reservation_id: string; organization_id: string; mandate_id: string; requester_user_id: string }>(
+          `SELECT o.id, br.id AS reservation_id, m.organization_id, pr.mandate_id, pr.requester_user_id
+             FROM payment_order o
+             JOIN budget_reservation br ON br.policy_decision_id = o.policy_decision_id
+             JOIN purchase_request pr ON pr.id = o.purchase_request_id
+             JOIN mandate m ON m.id = pr.mandate_id
+            WHERE o.purchase_request_id = $1 AND o.state = 'PAYMENT_PENDING' AND br.state = 'HELD' AND br.expires_at <= $2
+              FOR UPDATE OF o`,
+          [requestId, now],
+        );
+        const o = order.rows[0];
+        if (!o) return false;
+        const ctx: Context = { requestId, mandateId: o.mandate_id, organizationId: o.organization_id, requesterUserId: o.requester_user_id };
+        await tx.query("UPDATE payment_order SET state = 'FAILED' WHERE id = $1", [o.id]);
+        await this.#event(tx, o.id, 'expired', 'PAYMENT_PENDING', 'FAILED', {});
+        await releaseReservation(tx, o.reservation_id, now);
+        await tx.query("UPDATE purchase_request SET status = 'FAILED', failure_code = 'EXPIRED' WHERE id = $1", [requestId]);
+        await this.#audit(tx, ctx, 'system', null, 'payment.expired', {});
+        return true;
+      });
+      if (did) closed += 1;
+    }
+    return closed;
+  }
+
+  async #openOrder(tx: Queryable, ctx: Context, decisionId: string, amount: Money, approvalId: string | null = null): Promise<string> {
+    const order = await tx.query<{ id: string }>(
+      `INSERT INTO payment_order (purchase_request_id, policy_decision_id, approval_id, idempotency_key, state, payment_variant, amount_minor_units, currency)
+       VALUES ($1, $2, $3, $4, 'PAYMENT_PENDING', 'APPROVAL_LINK', $5, $6) RETURNING id`,
+      [ctx.requestId, decisionId, approvalId, `pay-${decisionId}`, amount.amountMinor, amount.currency],
+    );
+    const orderId = order.rows[0]?.id ?? '';
+    await this.#event(tx, orderId, 'created', null, 'PAYMENT_PENDING', {});
+    await this.#setStatus(tx, ctx.requestId, 'PAYMENT_PENDING');
+    return orderId;
+  }
+
+  async #notifyApprover(
+    ctx: Context,
+    approval: { approvalId: string; token: string; expiresAt: Date; amount: Money; reasons: Reason[] },
+  ): Promise<void> {
+    const { approvalNotifier, db } = this.#deps;
+    if (!approvalNotifier) return;
+    try {
+      await approvalNotifier.notify({ ...approval, purchaseId: ctx.requestId });
+      await this.#audit(db, ctx, 'system', null, 'approval.notified', {});
+    } catch {
+      // The request stays PENDING_APPROVAL and the budget held; the sweep releases it at expiry.
+      await this.#audit(db, ctx, 'system', null, 'approval.notify_failed', {});
+    }
+  }
+
+  async #requote(requestId: string): Promise<Money | undefined> {
+    const { db, catalog } = this.#deps;
+    const lines = await db.query<{ external_product_id: string; quantity: number; currency: string }>(
+      `SELECT ps.external_product_id, ci.quantity, c.currency
+         FROM cart c JOIN cart_item ci ON ci.cart_id = c.id JOIN product_snapshot ps ON ps.id = ci.product_snapshot_id
+        WHERE c.purchase_request_id = $1`,
+      [requestId],
+    );
+    if (!catalog.requote || lines.rows.length === 0) return undefined;
+    const prices = await catalog.requote(lines.rows.map((l) => l.external_product_id));
+    let total = 0n;
+    for (const line of lines.rows) {
+      const price = prices.get(line.external_product_id);
+      if (!price || price.currency !== line.currency) return undefined;
+      total += BigInt(price.amountMinor) * BigInt(line.quantity);
+    }
+    if (total > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    return { amountMinor: Number(total), currency: lines.rows[0]?.currency ?? '' };
+  }
+
+  async #closeApproval(tx: Queryable, ctx: Context, approval: ApprovalRow, outcome: 'REJECTED' | 'EXPIRED', now: Date, channel: string | null = null): Promise<void> {
+    await tx.query('UPDATE approval SET status = $2, decided_at = $3, channel = COALESCE($4, channel) WHERE id = $1', [approval.id, outcome, now, channel]);
+    await releaseReservation(tx, approval.reservation_id, now);
+    await this.#setStatus(tx, ctx.requestId, outcome);
+    await this.#audit(
+      tx,
+      ctx,
+      outcome === 'REJECTED' ? 'user' : 'system',
+      outcome === 'REJECTED' ? approval.approver_user_id : null,
+      outcome === 'REJECTED' ? 'approval.rejected' : 'approval.expired',
+      channel ? { channel } : {},
+    );
+  }
+
+  #ctxOf(approval: ApprovalRow): Context {
+    return {
+      requestId: approval.request_id,
+      mandateId: approval.mandate_id,
+      organizationId: approval.organization_id,
+      requesterUserId: approval.requester_user_id,
+    };
+  }
+
+  async #approvalByHash(q: Queryable, tokenHash: string, lock = false): Promise<ApprovalRow | undefined> {
+    return (await q.query<ApprovalRow>(`${APPROVAL_SELECT} WHERE a.token_hash = $1${lock ? ' FOR UPDATE OF a' : ''}`, [tokenHash])).rows[0];
+  }
+
+  async #approvalByRequest(q: Queryable, requestId: string): Promise<ApprovalRow | undefined> {
+    return (await q.query<ApprovalRow>(`${APPROVAL_SELECT} WHERE a.purchase_request_id = $1 FOR UPDATE OF a`, [requestId])).rows[0];
   }
 
   /** Runs after the decision transaction commits, so the idempotency key is stored before money can move. */

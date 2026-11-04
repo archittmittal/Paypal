@@ -32,7 +32,8 @@ apps/web          React UI + AG Studio dashboard
 apps/api          Fastify API: health/ready, error handling, config; Postgres migrations (apps/api/migrations), budget reservations, seed
                   modules/purchases: request -> intent -> candidates -> proposal -> cart -> policy -> reservation -> PayPal order
                   (ports for the LLM/catalog in ports.ts); modules/payments: the only @mandate/payments import
-                  (modules to come: approvals, webhooks, audit views)
+                  approvals: single-use hashed tokens, approve/reject, re-quote + price drift, expiry sweep
+                  (modules to come: webhooks, reconciliation, audit views)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils

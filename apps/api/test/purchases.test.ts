@@ -1,4 +1,4 @@
-import { CandidateSchema, type Candidate, type Proposal, type PurchaseIntent } from '@mandate/shared';
+import { CandidateSchema, type Candidate, type Money, type Proposal, type PurchaseIntent } from '@mandate/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
@@ -7,8 +7,15 @@ import { loadMigrations, migrate } from '../src/db/migrate.js';
 import { DEMO_IDS, seed } from '../src/db/seed.js';
 import { buildCart } from '../src/modules/purchases/cart.js';
 import { loadHistory, lockMandate } from '../src/modules/purchases/policy-inputs.js';
-import { GatewayError, type CatalogProduct, type GatewayOrder, type PaymentGateway } from '../src/modules/purchases/ports.js';
-import { PurchaseError, PurchaseService, RESERVATION_TTL_MS } from '../src/modules/purchases/service.js';
+import {
+  GatewayError,
+  type ApprovalNotifier,
+  type ApprovalRequest,
+  type CatalogProduct,
+  type GatewayOrder,
+  type PaymentGateway,
+} from '../src/modules/purchases/ports.js';
+import { hashToken, PurchaseError, PurchaseService, RESERVATION_TTL_MS } from '../src/modules/purchases/service.js';
 import { createTestDb } from './helpers/pglite.js';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -93,6 +100,9 @@ interface Setup {
   intentResult?: PurchaseIntent | Error;
   catalogError?: Error;
   rankError?: Error;
+  notifier?: ApprovalNotifier;
+  requote?: (ids: readonly string[]) => Promise<ReadonlyMap<string, Money>>;
+  now?: () => Date;
 }
 
 function service(setup: Setup = {}, payments = new FakePayments()) {
@@ -100,9 +110,13 @@ function service(setup: Setup = {}, payments = new FakePayments()) {
   const products = setup.products ?? [product(c1)];
   const svc = new PurchaseService({
     db,
-    now: () => NOW,
+    now: setup.now ?? (() => NOW),
+    ...(setup.notifier ? { approvalNotifier: setup.notifier } : {}),
     intentParser: { parse: () => (setup.intentResult instanceof Error ? Promise.reject(setup.intentResult) : Promise.resolve(setup.intentResult ?? intent)) },
-    catalog: { search: () => (setup.catalogError ? Promise.reject(setup.catalogError) : Promise.resolve(products)) },
+    catalog: {
+      search: () => (setup.catalogError ? Promise.reject(setup.catalogError) : Promise.resolve(products)),
+      ...(setup.requote ? { requote: setup.requote } : {}),
+    },
     ranker: { rank: () => (setup.rankError ? Promise.reject(setup.rankError) : Promise.resolve((setup.proposal ?? propose([c1.id, 2])) as Proposal)) },
     payments,
   });
@@ -370,6 +384,156 @@ describe('capture', () => {
     await expect(svc.capture('00000000-0000-4000-8000-0000000000ff')).rejects.toMatchObject({ code: 'NOT_FOUND' });
     const denied = await submit(service({ proposal: propose(['cand_test000001', 99]) }).svc, await newMandate());
     await expect(svc.capture(denied.view.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+});
+
+describe('approvals', () => {
+  /** A request that needs approval (2 x 15,000 reaches the 30,000 threshold), with the notified token captured. */
+  async function pendingApproval(extra: Setup = {}, payments = new FakePayments()) {
+    const mandateId = await newMandate();
+    const desk = candidate(40, 15_000);
+    const chair = candidate(41, 15_000);
+    const sent: ApprovalRequest[] = [];
+    const notifier: ApprovalNotifier = {
+      notify: (r) => {
+        sent.push(r);
+        return Promise.resolve();
+      },
+    };
+    const setup: Setup = { products: [product(desk), product(chair)], proposal: propose([desk.id, 1], [chair.id, 1]), notifier, ...extra };
+    const { svc } = service(setup, payments);
+    const { view } = await submit(svc, mandateId);
+    return { svc, view, mandateId, payments, sent, setup, token: sent[0]?.token ?? '' };
+  }
+
+  const reservationState = async (requestId: string) =>
+    (
+      await db.query<{ state: string }>(
+        'SELECT br.state FROM budget_reservation br JOIN policy_decision pd ON pd.id = br.policy_decision_id WHERE pd.purchase_request_id = $1',
+        [requestId],
+      )
+    ).rows[0]?.state;
+
+  it('notifies the approver once with a single-use token, storing only its hash', async () => {
+    const { view, sent, token } = await pendingApproval();
+    expect(view.status).toBe('PENDING_APPROVAL');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      purchaseId: view.id,
+      amount: { amountMinor: 30000, currency: 'USD' },
+      expiresAt: new Date(NOW.getTime() + RESERVATION_TTL_MS),
+    });
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const stored = await db.query<{ token_hash: string }>('SELECT token_hash FROM approval WHERE purchase_request_id = $1', [view.id]);
+    expect(stored.rows[0]?.token_hash).toBe(hashToken(token));
+    expect(JSON.stringify(stored.rows)).not.toContain(token);
+  });
+
+  it('APPROVE: opens a PayPal order for the approved amount, linked to the approval', async () => {
+    const { svc, view, token, payments } = await pendingApproval();
+    const approved = await svc.decideApproval(token, 'APPROVE', 'email');
+    expect(approved).toMatchObject({ status: 'PAYMENT_PENDING', order: { state: 'PAYMENT_PENDING' } });
+    expect(approved.order?.approveUrl).toMatch(/^https:\/\//);
+    expect(payments.creates[0]?.amount).toEqual({ amountMinor: 30000, currency: 'USD' });
+    const order = await db.query<{ approval_id: string | null }>('SELECT approval_id FROM payment_order WHERE purchase_request_id = $1', [view.id]);
+    expect(order.rows[0]?.approval_id).not.toBeNull();
+    await expect(svc.decideApproval(token, 'APPROVE', 'email')).rejects.toMatchObject({ code: 'APPROVAL_ALREADY_DECIDED' });
+    expect(payments.creates).toHaveLength(1);
+  });
+
+  it('REJECT: releases the budget and records who decided', async () => {
+    const { svc, view, token } = await pendingApproval();
+    expect(await svc.decideApproval(token, 'REJECT', 'slack')).toMatchObject({ status: 'REJECTED' });
+    expect(await reservationState(view.id)).toBe('RELEASED');
+    expect(
+      await count("SELECT count(*) AS n FROM audit_log WHERE subject_id = $1 AND action = 'approval.rejected' AND actor_id = $2", [view.id, DEMO_IDS.approver]),
+    ).toBe(1);
+  });
+
+  it('refuses an unknown token', async () => {
+    const { svc } = service();
+    await expect(svc.decideApproval('A'.repeat(43), 'APPROVE', 'email')).rejects.toMatchObject({ code: 'APPROVAL_NOT_FOUND' });
+  });
+
+  it('an expired approval cannot be approved, and the budget is released', async () => {
+    const { view, token, setup, payments } = await pendingApproval();
+    const late = service({ ...setup, now: () => new Date(NOW.getTime() + RESERVATION_TTL_MS) }, payments).svc;
+    await expect(late.decideApproval(token, 'APPROVE', 'email')).rejects.toMatchObject({ code: 'APPROVAL_EXPIRED' });
+    expect((await late.get(view.id)).status).toBe('EXPIRED');
+    expect(await reservationState(view.id)).toBe('RELEASED');
+    expect(payments.creates).toEqual([]);
+  });
+
+  const prices = (entries: [string, number][]) => () => Promise.resolve(new Map<string, Money>(entries.map(([id, amountMinor]) => [id, { amountMinor, currency: 'USD' }])));
+
+  it('re-quotes before paying: a rise within tolerance pays the approved amount', async () => {
+    const { svc, token, payments } = await pendingApproval({ requote: prices([['sku-40', 15_200], ['sku-41', 15_000]]) });
+    expect((await svc.decideApproval(token, 'APPROVE', 'email')).status).toBe('PAYMENT_PENDING');
+    expect(payments.creates[0]?.amount).toEqual({ amountMinor: 30000, currency: 'USD' });
+  });
+
+  it.each([
+    ['the price rose past tolerance', prices([['sku-40', 16_000], ['sku-41', 15_000]])],
+    ['a product is missing from the re-quote', prices([['sku-40', 15_000]])],
+    ['the re-quote fails', () => Promise.reject(new Error('catalog down'))],
+  ])('does not pay when %s', async (_label, requote) => {
+    const { svc, view, token, payments } = await pendingApproval({ requote });
+    expect(await svc.decideApproval(token, 'APPROVE', 'email')).toMatchObject({ status: 'FAILED', failureCode: 'PRICE_DRIFT' });
+    expect(payments.creates).toEqual([]);
+    expect(await reservationState(view.id)).toBe('RELEASED');
+  });
+
+  it('keeps the request pending when notifying fails, and audits it', async () => {
+    const { view } = await pendingApproval({ notifier: { notify: () => Promise.reject(new Error('zapier down')) } });
+    expect(view.status).toBe('PENDING_APPROVAL');
+    expect(await count("SELECT count(*) AS n FROM audit_log WHERE subject_id = $1 AND action = 'approval.notify_failed'", [view.id])).toBe(1);
+  });
+
+  it('works without a notifier configured', async () => {
+    const mandateId = await newMandate();
+    const desk = candidate(42, 15_000);
+    const chair = candidate(43, 15_000);
+    const { svc } = service({ products: [product(desk), product(chair)], proposal: propose([desk.id, 1], [chair.id, 1]) });
+    expect((await submit(svc, mandateId)).view.status).toBe('PENDING_APPROVAL');
+  });
+
+  it('decides over HTTP with the token in the body', async () => {
+    const { svc, token } = await pendingApproval();
+    const app = await buildApp({ config: { logLevel: 'silent' }, logger: false, purchases: svc });
+    try {
+      const rejected = await app.inject({ method: 'POST', url: '/approvals/decision', payload: { token, decision: 'REJECT' } });
+      expect(rejected.json()).toMatchObject({ status: 'REJECTED' });
+      const again = await app.inject({ method: 'POST', url: '/approvals/decision', payload: { token, decision: 'APPROVE' } });
+      expect(again.statusCode).toBe(409);
+      const bad = await app.inject({ method: 'POST', url: '/approvals/decision', payload: { token: 'short', decision: 'APPROVE' } });
+      expect(bad.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe('sweepExpired', () => {
+  it('expires stale approvals and unpaid orders, releasing their budget, and leaves fresh ones alone', async () => {
+    const mandateId = await newMandate();
+    const desk = candidate(50, 15_000);
+    const chair = candidate(51, 15_000);
+    const needsApproval = service({ products: [product(desk), product(chair)], proposal: propose([desk.id, 1], [chair.id, 1]) }).svc;
+    const approvalReq = await submit(needsApproval, mandateId, 'needs approval');
+    // A separate mandate: on the same one, the held 30,000 would make this small buy look like structuring.
+    const orderMandateId = await newMandate();
+    const orderReq = await submit(service().svc, orderMandateId, 'allowed');
+
+    expect(await service().svc.sweepExpired()).toBe(0);
+    const later = service({ now: () => new Date(NOW.getTime() + RESERVATION_TTL_MS + 1) }).svc;
+    expect(await later.sweepExpired()).toBeGreaterThanOrEqual(2);
+    expect((await later.get(approvalReq.view.id)).status).toBe('EXPIRED');
+    expect(await later.get(orderReq.view.id)).toMatchObject({ status: 'FAILED', failureCode: 'EXPIRED', order: { state: 'FAILED' } });
+    for (const id of [mandateId, orderMandateId]) {
+      expect(await count("SELECT count(*) AS n FROM budget_reservation WHERE mandate_id = $1 AND state = 'HELD'", [id])).toBe(0);
+    }
+    await expect(later.capture(orderReq.view.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(await later.sweepExpired()).toBe(0);
   });
 });
 
