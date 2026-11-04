@@ -294,7 +294,7 @@ The Phase 5 naive baseline needs tools. It belongs in `packages/evals` with its 
 |---|---|
 | 2: Channel3 client | `CandidateSchema` (quarantine on parse), `MoneySchema`, opaque `cand_…` ids, the ER mapping in §3 |
 | 3: intent parser | **Built:** `LlmIntentParser` in `src/intent.ts` (`LlmClient.generateStructured` + `PurchaseIntentSchema`). The request is an **untrusted** part (§16) |
-| 4: ranker | `ProposalSchema`; candidate text as `untrusted` parts; resolve `candidateId` to a snapshot and recompute prices in code |
+| 4: ranker | **Built:** `LlmRanker` in `src/ranker.ts` (§17). `apps/api` `buildCart` resolves `candidateId` to a snapshot and recomputes prices in code |
 | 5: evals | `FakeProvider` with fault injection; a tools-enabled naive adapter kept in `packages/evals` |
 | 6: orchestrator | the `LlmError` codes → user-facing states; a pino adapter for `Logger`; `loadLlmConfig` at startup |
 | 7: tuning | `effort`, token budget and timeout from measurements; held-out attacks never used for prompt tuning |
@@ -317,3 +317,26 @@ The Phase 5 naive baseline needs tools. It belongs in `packages/evals` with its 
 | `ABORTED` | `ABORTED` |
 
 `VERIFY`: no dev-set eval run yet, because `packages/evals` (#19) does not exist. Run it there before tuning `INTENT_INSTRUCTIONS`, never on the held-out set.
+
+## 17. Ranker (Phase 4)
+
+`new LlmRanker(client).rank(intent, candidates, { signal })` returns a `Proposal`: candidate ids, quantities and short reasons. It structurally implements the API's `Ranker` port.
+
+| Prompt part | Kind | Why |
+|---|---|---|
+| Item index, quantity, max unit price | trusted | written by code from the validated intent |
+| Item description and category | untrusted (`item_description`) | the parser wrote them from the requester's untrusted text |
+| Candidate id and unit price | trusted | code-generated id; price from the catalog, shown so the model can respect `maxUnitPrice` |
+| Candidate retailer, title, description | untrusted | retailer text, already `Quarantined` by `CandidateSchema` |
+
+After schema validation, `checkProposal` refuses the whole proposal (`RankingError`) when:
+
+| Code | Condition |
+|---|---|
+| `UNKNOWN_CANDIDATE` | a `candidateId` is not in the fetched set (a fabricated id is an injection signal, so the proposal is not trimmed) |
+| `UNKNOWN_ITEM` | an `unmatchedItems[].itemIndex` is outside the request |
+| `QUANTITY_EXCEEDS_REQUEST` | the selected units exceed the total units requested (e.g. a listing claiming "minimum order 500") |
+
+Selections are not tied to item indexes, so the quantity bound is on the total, not per item. Per-item plausibility stays a policy reason. Prices the model might write are rejected by the strict schema, and `buildCart` reads only `candidateId` and `quantity` in any case.
+
+`VERIFY`: no dev-set eval run yet (#19), and no live run (#21).
