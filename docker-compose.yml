@@ -1,0 +1,61 @@
+# Local development services. `docker compose up -d --wait` starts Postgres only and returns once it is healthy
+# (plain `up -d` returns as soon as the container starts, before Postgres accepts connections).
+# Elasticsearch is optional (ADR 0003, tech-stack dissent 1): `docker compose --profile search up -d`.
+#
+# Values come from the repo .env when present (compose reads it automatically), otherwise from the defaults
+# below, which match packages/db/src/config.ts. The defaults are for a laptop only: never reuse them in a
+# deployment. Ports bind to 127.0.0.1 so nothing is exposed beyond this machine.
+
+name: mandate
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mandate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mandate}
+      POSTGRES_DB: ${POSTGRES_DB:-mandate}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - mandate
+    healthcheck:
+      # Over TCP on purpose: during first start the image runs a temporary, socket-only server for initdb,
+      # which a socket probe would report as ready before the real server is up.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  elasticsearch:
+    profiles: ["search"]
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      # Local only and bound to 127.0.0.1. A deployment must enable security.
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "127.0.0.1:${ELASTICSEARCH_PORT:-9200}:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - mandate
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  postgres-data:
+  elasticsearch-data:
+
+networks:
+  mandate:
