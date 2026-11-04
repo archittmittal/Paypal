@@ -8,7 +8,7 @@ const amount = { amountMinor: 1000, currency: 'USD' };
 function gateway(result: OrderSummary | Error) {
   const calls: unknown[] = [];
   const respond = () => (result instanceof Error ? Promise.reject(result) : Promise.resolve(result));
-  const client: Pick<PaypalClient, 'createOrder' | 'captureOrder'> = {
+  const client: Pick<PaypalClient, 'createOrder' | 'captureOrder' | 'getOrder' | 'verifyWebhookSignature'> = {
     createOrder: (input: unknown) => {
       calls.push(input);
       return respond();
@@ -17,11 +17,52 @@ function gateway(result: OrderSummary | Error) {
       calls.push(args);
       return respond();
     },
+    getOrder: (id: string) => {
+      calls.push(id);
+      return respond();
+    },
+    verifyWebhookSignature: (headers: unknown, event: unknown) => {
+      calls.push([headers, event]);
+      return result instanceof Error ? Promise.reject(result) : Promise.resolve(true);
+    },
   };
   return { gw: new PaypalGateway(client), calls };
 }
 
 describe('PaypalGateway', () => {
+  it('reads an order and sums only COMPLETED captures', async () => {
+    const { gw, calls } = gateway({
+      id: 'PP1',
+      status: 'COMPLETED',
+      captures: [
+        { id: 'C1', status: 'COMPLETED', amount: { amountMinor: 600, currency: 'USD' } },
+        { id: 'C2', status: 'COMPLETED', amount: { amountMinor: 400, currency: 'USD' } },
+        { id: 'C3', status: 'DECLINED', amount: { amountMinor: 999, currency: 'USD' } },
+      ],
+    });
+    expect(await gw.getOrder('PP1')).toEqual({ providerOrderId: 'PP1', status: 'COMPLETED', capturedAmount: amount });
+    expect(calls[0]).toBe('PP1');
+  });
+
+  it('leaves capturedAmount unset when captures are in mixed currencies', async () => {
+    const { gw } = gateway({
+      id: 'PP1',
+      status: 'COMPLETED',
+      captures: [
+        { id: 'C1', status: 'COMPLETED', amount: { amountMinor: 600, currency: 'USD' } },
+        { id: 'C2', status: 'COMPLETED', amount: { amountMinor: 400, currency: 'EUR' } },
+      ],
+    });
+    expect((await gw.getOrder('PP1')).capturedAmount).toBeUndefined();
+  });
+
+  it('delegates webhook verification to the client', async () => {
+    const { gw, calls } = gateway({ id: 'PP1', status: 'COMPLETED', captures: [] });
+    expect(await gw.verifyWebhook({ a: 'b' }, { id: 'WH-1' })).toBe(true);
+    expect(calls[0]).toEqual([{ a: 'b' }, { id: 'WH-1' }]);
+  });
+
+
   it('creates buyer-approval orders and maps the summary', async () => {
     const { gw, calls } = gateway({ id: 'PP1', status: 'PAYER_ACTION_REQUIRED', approveUrl: 'https://paypal.example/a', captures: [] });
     const result = await gw.createOrder({ amount, idempotencyKey: 'pay-123456789', reference: 'ref', description: 'd' });

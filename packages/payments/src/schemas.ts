@@ -58,6 +58,18 @@ export const OrderResponseSchema = z.object({
 });
 export type OrderResponse = z.infer<typeof OrderResponseSchema>;
 
+/** PayPal's transmission headers on a webhook delivery (Node lower-cases header names). */
+export const WebhookHeadersSchema = z.object({
+  'paypal-auth-algo': z.string().regex(/^[A-Za-z0-9]{1,32}$/),
+  // Only PayPal's own certificate host; the verify call itself also checks this.
+  'paypal-cert-url': z.url({ protocol: /^https$/, hostname: /^api(-m)?\.(sandbox\.)?paypal\.com$/ }),
+  'paypal-transmission-id': z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
+  'paypal-transmission-sig': z.string().min(1).max(2048),
+  'paypal-transmission-time': z.string().min(1).max(64),
+});
+
+export const VerifyWebhookResponseSchema = z.object({ verification_status: z.enum(['SUCCESS', 'FAILURE']) });
+
 export const ErrorBodySchema = z.object({
   debug_id: z.string().optional(),
   details: z.array(z.object({ issue: z.string() })).optional(),

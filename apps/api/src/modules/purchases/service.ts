@@ -80,6 +80,18 @@ export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+interface OrderRow {
+  id: string;
+  state: string;
+  provider_order_id: string | null;
+  amount_minor_units: unknown;
+  currency: string;
+  policy_decision_id: string;
+  organization_id: string;
+  mandate_id: string;
+  requester_user_id: string;
+}
+
 interface ApprovalRow {
   id: string;
   status: string;
@@ -249,26 +261,108 @@ export class PurchaseService {
   }
 
   /** Captures an ALLOW-ed order after the buyer approved it on PayPal. */
+  /**
+   * Settles an order from PayPal's own record (failure mode 4). Used for UNKNOWN_OUTCOME and whenever a webhook
+   * says something changed: the webhook only triggers this, and its payload is never trusted for money state.
+   */
+  async reconcile(requestId: string): Promise<PurchaseView> {
+    const { db, payments } = this.#deps;
+    const order = await this.#orderRow(requestId);
+    if (!order) throw new PurchaseError((await this.#exists(requestId)) ? 'INVALID_STATE' : 'NOT_FOUND');
+    if (order.state !== 'UNKNOWN_OUTCOME' && order.state !== 'PAYMENT_PENDING') return this.get(requestId);
+
+    const ctx: Context = { requestId, mandateId: order.mandate_id, organizationId: order.organization_id, requesterUserId: order.requester_user_id };
+    const expected: Money = { amountMinor: Number(toBigInt(order.amount_minor_units)), currency: order.currency };
+
+    if (order.provider_order_id === null) {
+      // The create call never confirmed. Retrying with the same PayPal-Request-Id returns the original order if
+      // PayPal created one, and creates it once if not (VERIFY: PayPal's idempotency window on the sandbox).
+      const reservationId = await this.#reservationFor(db, order.policy_decision_id);
+      if (reservationId) {
+        await this.#createPayment(ctx, { orderId: order.id, decisionId: order.policy_decision_id, reservationId, amount: expected });
+      }
+      return this.get(requestId);
+    }
+
+    let remote;
+    try {
+      remote = await payments.getOrder(order.provider_order_id);
+    } catch {
+      // PayPal could not be asked: nothing is known yet, so nothing changes.
+      return this.get(requestId);
+    }
+
+    if (remote.status === 'COMPLETED') {
+      const captured = remote.capturedAmount;
+      if (captured?.amountMinor === expected.amountMinor && captured.currency === expected.currency) {
+        await this.#markCaptured(ctx, order, expected, remote.status, order.state);
+      } else {
+        // PayPal says paid, but not the amount we approved. A human must look; never mark it settled.
+        await db.transaction(async (tx) => {
+          await tx.query("UPDATE payment_order SET state = 'UNKNOWN_OUTCOME', provider_status = $2 WHERE id = $1", [order.id, remote.status]);
+          await this.#event(tx, order.id, 'amount_mismatch', order.state, 'UNKNOWN_OUTCOME', { captured: captured ?? null });
+          await this.#setStatus(tx, requestId, 'UNKNOWN_OUTCOME');
+          await this.#audit(tx, ctx, 'system', null, 'payment.amount_mismatch', { expected, captured: captured ?? null });
+        });
+      }
+      return this.get(requestId);
+    }
+
+    if (remote.status === 'VOIDED') {
+      await db.transaction(async (tx) => {
+        await tx.query("UPDATE payment_order SET state = 'FAILED', provider_status = $2 WHERE id = $1", [order.id, remote.status]);
+        await this.#event(tx, order.id, 'voided', order.state, 'FAILED', {});
+        const reservationId = await this.#reservationFor(tx, order.policy_decision_id);
+        if (reservationId) await releaseReservation(tx, reservationId, this.#now());
+        await tx.query("UPDATE purchase_request SET status = 'FAILED', failure_code = 'PAYPAL_VOIDED' WHERE id = $1", [requestId]);
+        await this.#audit(tx, ctx, 'system', null, 'payment.voided', {});
+      });
+      return this.get(requestId);
+    }
+
+    // Not paid yet (CREATED, SAVED, PAYER_ACTION_REQUIRED, APPROVED): the order is simply still pending.
+    await db.transaction(async (tx) => {
+      await tx.query("UPDATE payment_order SET state = 'PAYMENT_PENDING', provider_status = $2 WHERE id = $1", [order.id, remote.status]);
+      await this.#event(tx, order.id, 'reconciled', order.state, 'PAYMENT_PENDING', { providerStatus: remote.status });
+      await this.#setStatus(tx, requestId, 'PAYMENT_PENDING');
+    });
+    if (remote.status === 'APPROVED') {
+      // The buyer approved on PayPal: capture now, so the purchase completes even if they never return to our page.
+      try {
+        return await this.capture(requestId);
+      } catch (error) {
+        if (error instanceof PurchaseError && error.code === 'PAYMENT_NOT_CAPTURABLE') return this.get(requestId);
+        throw error;
+      }
+    }
+    return this.get(requestId);
+  }
+
+  /** Reconciles every order whose outcome is unknown. Run periodically. Returns how many were settled. */
+  async reconcileUnknown(): Promise<number> {
+    const { rows } = await this.#deps.db.query<{ purchase_request_id: string }>(
+      "SELECT purchase_request_id FROM payment_order WHERE state = 'UNKNOWN_OUTCOME' ORDER BY created_at",
+    );
+    let settled = 0;
+    for (const { purchase_request_id: requestId } of rows) {
+      const view = await this.reconcile(requestId);
+      if (view.order?.state !== 'UNKNOWN_OUTCOME') settled += 1;
+    }
+    return settled;
+  }
+
+  /** The PayPal order id is how a webhook names an order; this maps it back to our request. */
+  async requestForProviderOrder(providerOrderId: string): Promise<string | undefined> {
+    const { rows } = await this.#deps.db.query<{ purchase_request_id: string }>(
+      'SELECT purchase_request_id FROM payment_order WHERE provider_order_id = $1',
+      [providerOrderId],
+    );
+    return rows[0]?.purchase_request_id;
+  }
+
   async capture(requestId: string): Promise<PurchaseView> {
     const { db, payments } = this.#deps;
-    const found = await db.query<{
-      id: string;
-      state: string;
-      provider_order_id: string | null;
-      amount_minor_units: unknown;
-      currency: string;
-      policy_decision_id: string;
-      organization_id: string;
-      mandate_id: string;
-      requester_user_id: string;
-    }>(
-      `SELECT o.id, o.state, o.provider_order_id, o.amount_minor_units, o.currency, o.policy_decision_id,
-              m.organization_id, pr.mandate_id, pr.requester_user_id
-         FROM payment_order o JOIN purchase_request pr ON pr.id = o.purchase_request_id JOIN mandate m ON m.id = pr.mandate_id
-        WHERE o.purchase_request_id = $1`,
-      [requestId],
-    );
-    const order = found.rows[0];
+    const order = await this.#orderRow(requestId);
     if (!order) throw new PurchaseError((await this.#exists(requestId)) ? 'INVALID_STATE' : 'NOT_FOUND');
     if (order.state !== 'PAYMENT_PENDING' || order.provider_order_id === null) throw new PurchaseError('INVALID_STATE');
 
@@ -283,14 +377,7 @@ export class PurchaseService {
         });
         return await this.get(requestId);
       }
-      await db.transaction(async (tx) => {
-        await tx.query("UPDATE payment_order SET state = 'CAPTURED', provider_status = $2 WHERE id = $1", [order.id, result.status]);
-        await this.#event(tx, order.id, 'captured', 'PAYMENT_PENDING', 'CAPTURED', { providerStatus: result.status });
-        const reservation = await this.#reservationFor(tx, order.policy_decision_id);
-        if (reservation) await commitReservation(tx, reservation);
-        await this.#setStatus(tx, requestId, 'CAPTURED');
-        await this.#audit(tx, ctx, 'system', null, 'payment.captured', { amountMinor: expected.amountMinor, currency: expected.currency });
-      });
+      await this.#markCaptured(ctx, order, expected, result.status, 'PAYMENT_PENDING');
     } catch (error) {
       // Once a money-moving call has started, an unclassified error means the money may have moved.
       const failure = asGatewayError(error);
@@ -667,13 +754,13 @@ export class PurchaseService {
         description: `Mandate purchase ${ctx.requestId}`,
       });
       await db.transaction(async (tx) => {
-        await tx.query('UPDATE payment_order SET provider_order_id = $2, provider_status = $3, approve_url = $4 WHERE id = $1', [
-          order.orderId,
-          created.providerOrderId,
-          created.status,
-          created.approveUrl ?? null,
-        ]);
-        await this.#event(tx, order.orderId, 'provider_order_created', 'PAYMENT_PENDING', 'PAYMENT_PENDING', { providerStatus: created.status });
+        // Also the success path of a reconcile retry, which starts from UNKNOWN_OUTCOME.
+        await tx.query(
+          "UPDATE payment_order SET provider_order_id = $2, provider_status = $3, approve_url = $4, state = 'PAYMENT_PENDING' WHERE id = $1",
+          [order.orderId, created.providerOrderId, created.status, created.approveUrl ?? null],
+        );
+        await this.#setStatus(tx, ctx.requestId, 'PAYMENT_PENDING');
+        await this.#event(tx, order.orderId, 'provider_order_created', null, 'PAYMENT_PENDING', { providerStatus: created.status });
         await this.#audit(tx, ctx, 'system', null, 'payment.order_created', { providerStatus: created.status });
       });
     } catch (error) {
@@ -690,6 +777,28 @@ export class PurchaseService {
   }
 
   /** The reservation stays HELD: the money may have moved. Reconciliation via get-order is #13. */
+  async #orderRow(requestId: string): Promise<OrderRow | undefined> {
+    const { rows } = await this.#deps.db.query<OrderRow>(
+      `SELECT o.id, o.state, o.provider_order_id, o.amount_minor_units, o.currency, o.policy_decision_id,
+              m.organization_id, pr.mandate_id, pr.requester_user_id
+         FROM payment_order o JOIN purchase_request pr ON pr.id = o.purchase_request_id JOIN mandate m ON m.id = pr.mandate_id
+        WHERE o.purchase_request_id = $1`,
+      [requestId],
+    );
+    return rows[0];
+  }
+
+  async #markCaptured(ctx: Context, order: OrderRow, amount: Money, providerStatus: string, fromState: string): Promise<void> {
+    await this.#deps.db.transaction(async (tx) => {
+      await tx.query("UPDATE payment_order SET state = 'CAPTURED', provider_status = $2 WHERE id = $1", [order.id, providerStatus]);
+      await this.#event(tx, order.id, 'captured', fromState, 'CAPTURED', { providerStatus });
+      const reservation = await this.#reservationFor(tx, order.policy_decision_id);
+      if (reservation) await commitReservation(tx, reservation);
+      await this.#setStatus(tx, ctx.requestId, 'CAPTURED');
+      await this.#audit(tx, ctx, 'system', null, 'payment.captured', { amountMinor: amount.amountMinor, currency: amount.currency });
+    });
+  }
+
   async #markUnknown(ctx: Context, orderId: string, code: string): Promise<void> {
     await this.#deps.db.transaction(async (tx) => {
       await tx.query("UPDATE payment_order SET state = 'UNKNOWN_OUTCOME' WHERE id = $1", [orderId]);

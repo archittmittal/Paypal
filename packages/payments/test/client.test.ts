@@ -248,3 +248,72 @@ describe('getOrder and tokens', () => {
     await expectCode(harness([new Response('<html>', { status: 200 })]).client.getOrder('ORDER1'), 'PAYPAL_BAD_RESPONSE');
   });
 });
+
+describe('verifyWebhookSignature', () => {
+  const withWebhook = loadPaypalConfig({ PAYPAL_CLIENT_ID: 'id', PAYPAL_CLIENT_SECRET: 'secret', PAYPAL_WEBHOOK_ID: 'WH8PB0123456' });
+  const headers = {
+    'paypal-auth-algo': 'SHA256withRSA',
+    'paypal-cert-url': 'https://api.sandbox.paypal.com/v1/notifications/certs/CERT-360caa42',
+    'paypal-transmission-id': '69cd13f0-d67a-11e5-baa3-778b53f4ae55',
+    'paypal-transmission-sig': 'c1Nhd2l...signature',
+    'paypal-transmission-time': '2026-11-04T12:00:00Z',
+  };
+  const event = { id: 'WH-1', event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: {} };
+
+  function client(replies: Reply[]) {
+    const calls: Call[] = [];
+    const fetch: FetchLike = (url, init) => {
+      calls.push({ url, method: init.method ?? 'GET', headers: init.headers as Record<string, string>, body: typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : init.body });
+      const reply = replies.shift();
+      if (reply === undefined) throw new Error('unexpected call');
+      return reply instanceof Error ? Promise.reject(reply) : Promise.resolve(reply);
+    };
+    return { calls, client: new PaypalClient({ config: withWebhook, fetch, now: () => 0 }) };
+  }
+
+  it('sends the transmission headers, webhook id and event to PayPal', async () => {
+    const { calls, client: c } = client([token(), json(200, { verification_status: 'SUCCESS' })]);
+    expect(await c.verifyWebhookSignature(headers, event)).toBe(true);
+    expect(calls[1]?.url).toBe('https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature');
+    expect(calls[1]?.body).toEqual({
+      auth_algo: 'SHA256withRSA',
+      cert_url: headers['paypal-cert-url'],
+      transmission_id: headers['paypal-transmission-id'],
+      transmission_sig: headers['paypal-transmission-sig'],
+      transmission_time: headers['paypal-transmission-time'],
+      webhook_id: 'WH8PB0123456',
+      webhook_event: event,
+    });
+    expect(calls[1]?.headers['PayPal-Request-Id']).toBeUndefined();
+  });
+
+  it('returns false when PayPal says FAILURE', async () => {
+    const { client: c } = client([token(), json(200, { verification_status: 'FAILURE' })]);
+    expect(await c.verifyWebhookSignature(headers, event)).toBe(false);
+  });
+
+  it.each([
+    ['missing headers', {}],
+    ['a certificate URL on another host', { ...headers, 'paypal-cert-url': 'https://evil.example/cert' }],
+    ['a plain-http certificate URL', { ...headers, 'paypal-cert-url': 'http://api.sandbox.paypal.com/cert' }],
+  ])('rejects %s without calling PayPal', async (_label, h) => {
+    const { calls, client: c } = client([]);
+    expect(await c.verifyWebhookSignature(h, event)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it('throws on an unexpected response so the delivery is retried', async () => {
+    const { client: c } = client([token(), json(200, { verification_status: 'MAYBE' })]);
+    await expectCode(c.verifyWebhookSignature(headers, event), 'PAYPAL_BAD_RESPONSE');
+  });
+
+  it('throws when PayPal is unreachable', async () => {
+    const { client: c } = client([token(), new TypeError('fetch failed')]);
+    await expectCode(c.verifyWebhookSignature(headers, event), 'PAYPAL_UNAVAILABLE');
+  });
+
+  it('refuses to verify without a configured webhook id', async () => {
+    const { client: c } = harness([]);
+    await expect(c.verifyWebhookSignature(headers, event)).rejects.toThrow('PAYPAL_WEBHOOK_ID');
+  });
+});

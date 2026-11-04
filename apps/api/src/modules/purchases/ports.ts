@@ -54,6 +54,8 @@ export interface GatewayOrder {
   /** PayPal's order status, e.g. PAYER_ACTION_REQUIRED or COMPLETED. */
   status: string;
   approveUrl?: string;
+  /** Sum of COMPLETED captures, when PayPal reports any. */
+  capturedAmount?: Money;
 }
 
 export type GatewayFailureKind = 'UNKNOWN_OUTCOME' | 'REJECTED';
@@ -74,4 +76,8 @@ export class GatewayError extends Error {
 export interface PaymentGateway {
   createOrder(input: { amount: Money; idempotencyKey: string; reference: string; description: string }): Promise<GatewayOrder>;
   captureOrder(providerOrderId: string, idempotencyKey: string, expected: Money): Promise<GatewayOrder>;
+  /** Read-only and authoritative: reconciliation trusts this, never a webhook payload. */
+  getOrder(providerOrderId: string): Promise<GatewayOrder>;
+  /** Throws when PayPal cannot be asked, so the webhook is answered non-2xx and redelivered. */
+  verifyWebhook(headers: Readonly<Record<string, string | string[] | undefined>>, event: unknown): Promise<boolean>;
 }
