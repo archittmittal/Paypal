@@ -1,3 +1,4 @@
+import type { Reason } from '@mandate/policy';
 import type { Candidate, Money, Proposal, PurchaseIntent } from '@mandate/shared';
 
 /**
@@ -22,6 +23,25 @@ export interface CatalogProduct {
 
 export interface Catalog {
   search(intent: PurchaseIntent): Promise<CatalogProduct[]>;
+  /**
+   * Current unit prices by source product id, for the re-quote before paying an approved order.
+   * Optional: a catalog without it skips the price-drift check (VERIFY with #16 that Channel3 supports it).
+   */
+  requote?(sourceProductIds: readonly string[]): Promise<ReadonlyMap<string, Money>>;
+}
+
+export interface ApprovalRequest {
+  approvalId: string;
+  purchaseId: string;
+  /** Single-use secret for the approve/reject link. Never log or store it. */
+  token: string;
+  expiresAt: Date;
+  amount: Money;
+  reasons: readonly Reason[];
+}
+
+export interface ApprovalNotifier {
+  notify(request: ApprovalRequest): Promise<void>;
 }
 
 export interface Ranker {
