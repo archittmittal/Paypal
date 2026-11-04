@@ -1,6 +1,8 @@
-import { PaymentError, type PaypalClient } from '@mandate/payments';
-import type { Money } from '@mandate/shared';
+import { addMoney, type Money } from '@mandate/shared';
+import { PaymentError, type OrderSummary, type PaypalClient } from '@mandate/payments';
 import { GatewayError, type GatewayOrder, type PaymentGateway } from '../purchases/ports.js';
+
+type ClientSurface = Pick<PaypalClient, 'createOrder' | 'captureOrder' | 'getOrder' | 'verifyWebhookSignature'>;
 
 /**
  * The purchase flow's view of PayPal. The only file in the API that imports @mandate/payments
@@ -8,9 +10,9 @@ import { GatewayError, type GatewayOrder, type PaymentGateway } from '../purchas
  * shows whether sandbox allows charging a vaulted wallet with no buyer present.
  */
 export class PaypalGateway implements PaymentGateway {
-  readonly #client: Pick<PaypalClient, 'createOrder' | 'captureOrder'>;
+  readonly #client: ClientSurface;
 
-  constructor(client: Pick<PaypalClient, 'createOrder' | 'captureOrder'>) {
+  constructor(client: ClientSurface) {
     this.#client = client;
   }
 
@@ -24,10 +26,31 @@ export class PaypalGateway implements PaymentGateway {
   async captureOrder(providerOrderId: string, idempotencyKey: string, expected: Money): Promise<GatewayOrder> {
     return mapErrors(async () => toGatewayOrder(await this.#client.captureOrder(providerOrderId, idempotencyKey, expected)));
   }
+
+  async getOrder(providerOrderId: string): Promise<GatewayOrder> {
+    return mapErrors(async () => toGatewayOrder(await this.#client.getOrder(providerOrderId)));
+  }
+
+  async verifyWebhook(headers: Readonly<Record<string, string | string[] | undefined>>, event: unknown): Promise<boolean> {
+    return this.#client.verifyWebhookSignature(headers, event);
+  }
 }
 
-function toGatewayOrder(order: { id: string; status: string; approveUrl?: string }): GatewayOrder {
-  return { providerOrderId: order.id, status: order.status, ...(order.approveUrl === undefined ? {} : { approveUrl: order.approveUrl }) };
+function toGatewayOrder(order: OrderSummary): GatewayOrder {
+  const completed = order.captures.filter((c) => c.status === 'COMPLETED');
+  let captured: Money | undefined;
+  try {
+    captured = completed.reduce<Money | undefined>((sum, c) => (sum ? addMoney(sum, c.amount) : c.amount), undefined);
+  } catch {
+    // Captures in different currencies cannot be summed; leave it unset so reconciliation does not mark CAPTURED.
+    captured = undefined;
+  }
+  return {
+    providerOrderId: order.id,
+    status: order.status,
+    ...(order.approveUrl === undefined ? {} : { approveUrl: order.approveUrl }),
+    ...(captured === undefined ? {} : { capturedAmount: captured }),
+  };
 }
 
 async function mapErrors<T>(run: () => Promise<T>): Promise<T> {

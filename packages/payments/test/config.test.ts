@@ -36,3 +36,16 @@ describe('loadPaypalConfig', () => {
     expect(() => loadPaypalConfig({ ...valid, PAYPAL_RETURN_URL: 'javascript:alert(1)' })).toThrow(PaypalConfigError);
   });
 });
+
+describe('PAYPAL_WEBHOOK_ID', () => {
+  const base = { PAYPAL_CLIENT_ID: 'id', PAYPAL_CLIENT_SECRET: 'secret' };
+  it('is optional and read when set', () => {
+    expect(loadPaypalConfig(base).webhookId).toBeUndefined();
+    expect(loadPaypalConfig({ ...base, PAYPAL_WEBHOOK_ID: '' }).webhookId).toBeUndefined();
+    expect(loadPaypalConfig({ ...base, PAYPAL_WEBHOOK_ID: 'WH8PB0123456' }).webhookId).toBe('WH8PB0123456');
+  });
+
+  it('rejects a malformed id by name only', () => {
+    expect(() => loadPaypalConfig({ ...base, PAYPAL_WEBHOOK_ID: 'not an id!' })).toThrow('PAYPAL_WEBHOOK_ID');
+  });
+});

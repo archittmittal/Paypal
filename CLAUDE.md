@@ -33,7 +33,8 @@ apps/api          Fastify API: health/ready, error handling, config; Postgres mi
                   modules/purchases: request -> intent -> candidates -> proposal -> cart -> policy -> reservation -> PayPal order
                   (ports for the LLM/catalog in ports.ts); modules/payments: the only @mandate/payments import
                   approvals: single-use hashed tokens, approve/reject, re-quote + price drift, expiry sweep
-                  (modules to come: webhooks, reconciliation, audit views)
+                  reconcile(): settles orders from PayPal's getOrder; webhooks/paypal.ts: verify -> dedupe -> reconcile
+                  (modules to come: audit views)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils

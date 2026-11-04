@@ -38,6 +38,8 @@ export interface PaypalConfig {
   timeoutMs: number;
   returnUrl: string;
   cancelUrl: string;
+  /** Id of the webhook registered on the sandbox app; needed to verify webhook signatures. */
+  webhookId?: string;
 }
 
 /** Names only, never values: a value could be the secret itself. */
@@ -59,6 +61,7 @@ const EnvSchema = z.object({
   PAYPAL_TIMEOUT_MS: z.preprocess(emptyAsUnset, z.coerce.number().int().min(1_000).max(60_000).default(20_000)),
   PAYPAL_RETURN_URL: z.preprocess(emptyAsUnset, z.url({ protocol: /^https?$/ }).default('https://example.com/paypal/return')),
   PAYPAL_CANCEL_URL: z.preprocess(emptyAsUnset, z.url({ protocol: /^https?$/ }).default('https://example.com/paypal/cancel')),
+  PAYPAL_WEBHOOK_ID: z.preprocess(emptyAsUnset, z.string().regex(/^[A-Z0-9]{1,64}$/).optional()),
 });
 
 /**
@@ -78,5 +81,6 @@ export function loadPaypalConfig(env: Readonly<Record<string, string | undefined
     timeoutMs: parsed.data.PAYPAL_TIMEOUT_MS,
     returnUrl: parsed.data.PAYPAL_RETURN_URL,
     cancelUrl: parsed.data.PAYPAL_CANCEL_URL,
+    ...(parsed.data.PAYPAL_WEBHOOK_ID === undefined ? {} : { webhookId: parsed.data.PAYPAL_WEBHOOK_ID }),
   };
 }

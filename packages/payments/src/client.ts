@@ -1,9 +1,17 @@
 import { type Money, MoneySchema, addMoney } from '@mandate/shared';
 import { z } from 'zod';
 import { fromPaypalAmount, toPaypalAmount } from './amount.js';
-import type { PaypalConfig } from './config.js';
+import { type PaypalConfig, PaypalConfigError } from './config.js';
 import { PaymentError, codeForStatus } from './errors.js';
-import { ErrorBodySchema, type OrderResponse, OrderResponseSchema, type OrderStatus, TokenResponseSchema } from './schemas.js';
+import {
+  ErrorBodySchema,
+  type OrderResponse,
+  OrderResponseSchema,
+  type OrderStatus,
+  TokenResponseSchema,
+  VerifyWebhookResponseSchema,
+  WebhookHeadersSchema,
+} from './schemas.js';
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -95,6 +103,34 @@ export class PaypalClient {
     const order = summarize(parseOrder(raw));
     assertCaptured(order, MoneySchema.parse(expected));
     return order;
+  }
+
+  /**
+   * Asks PayPal whether a webhook delivery is genuine (POST /v1/notifications/verify-webhook-signature).
+   * Returns false for missing or malformed transmission headers without calling PayPal. Throws when the
+   * webhook id is not configured, or PayPal cannot be reached, so the caller answers non-2xx and PayPal
+   * redelivers later. VERIFY: PayPal verifies against the event as parsed JSON; confirm on the sandbox.
+   */
+  async verifyWebhookSignature(headers: Readonly<Record<string, string | string[] | undefined>>, event: unknown): Promise<boolean> {
+    if (this.#config.webhookId === undefined) throw new PaypalConfigError(['PAYPAL_WEBHOOK_ID']);
+    const parsed = WebhookHeadersSchema.safeParse(headers);
+    if (!parsed.success) return false;
+    const h = parsed.data;
+    const raw = await this.#send('POST', '/v1/notifications/verify-webhook-signature', {
+      body: {
+        auth_algo: h['paypal-auth-algo'],
+        cert_url: h['paypal-cert-url'],
+        transmission_id: h['paypal-transmission-id'],
+        transmission_sig: h['paypal-transmission-sig'],
+        transmission_time: h['paypal-transmission-time'],
+        webhook_id: this.#config.webhookId,
+        webhook_event: event,
+      },
+      movesMoney: false,
+    });
+    const result = VerifyWebhookResponseSchema.safeParse(raw);
+    if (!result.success) throw new PaymentError('PAYPAL_BAD_RESPONSE');
+    return result.data.verification_status === 'SUCCESS';
   }
 
   async getOrder(orderId: string): Promise<OrderSummary> {

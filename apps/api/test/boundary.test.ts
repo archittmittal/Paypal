@@ -8,7 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../src', import.meta.url));
 const PAYMENTS_DIR = 'modules/payments/';
-const FORBIDDEN = [/^@mandate\/payments(\/|$)/, /(^|\/)packages\/payments(\/|$)/, /paypal/i];
+// The last pattern catches PayPal SDK packages by name; relative imports of our own modules (such as the
+// signature-verified webhook handler in modules/webhooks/paypal.ts) are not packages and do not hold credentials.
+const FORBIDDEN = [/^@mandate\/payments(\/|$)/, /(^|\/)packages\/payments(\/|$)/, /^[^.].*paypal/i];
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+|\brequire\s*\(\s*)['"]([^'"]+)['"]/g;
 
 export function specifiers(source: string): string[] {
@@ -44,6 +46,11 @@ describe('payments import boundary', () => {
     ['a relative path into the package', "import { x } from '../../../packages/payments/src/client.js';"],
   ])('flags %s outside the payments module', (_label, source) => {
     expect(violations([{ path: 'modules/intake/routes.ts', source }])).toHaveLength(1);
+  });
+
+  it('allows a relative import of an API module that happens to be named paypal', () => {
+    const source = "import { paypalWebhookRoutes } from './modules/webhooks/paypal.js';";
+    expect(violations([{ path: 'app.ts', source }])).toEqual([]);
   });
 
   it('allows the payments module itself', () => {

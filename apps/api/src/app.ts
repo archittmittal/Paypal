@@ -5,12 +5,15 @@ import { errorHandler, notFoundHandler } from './http/errors.js';
 import { healthRoutes, type ReadinessCheck } from './modules/health/routes.js';
 import { purchaseRoutes } from './modules/purchases/routes.js';
 import type { PurchaseService } from './modules/purchases/service.js';
+import { paypalWebhookRoutes, type PaypalWebhookHandler } from './modules/webhooks/paypal.js';
 
 export interface AppOptions {
   config: Pick<ApiConfig, 'logLevel'>;
   readinessChecks?: readonly ReadinessCheck[];
   /** Registered only when the database and every port (LLM, catalog, PayPal) are configured. */
   purchases?: PurchaseService;
+  /** Registered only when PAYPAL_WEBHOOK_ID is configured, so signatures can be verified. */
+  paypalWebhooks?: PaypalWebhookHandler;
   /** Tests pass false to keep output quiet. */
   logger?: boolean;
 }
@@ -49,5 +52,6 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   await app.register(healthRoutes(options.readinessChecks ?? []));
   if (options.purchases) await app.register(purchaseRoutes(options.purchases));
+  if (options.paypalWebhooks) await app.register(paypalWebhookRoutes(options.paypalWebhooks));
   return app;
 }

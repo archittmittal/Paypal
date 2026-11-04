@@ -1,6 +1,6 @@
 import { CandidateSchema, type Candidate, type Money, type Proposal, type PurchaseIntent } from '@mandate/shared';
 import type { FastifyInstance } from 'fastify';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { toBigInt, type Db } from '../src/db/db.js';
 import { loadMigrations, migrate } from '../src/db/migrate.js';
@@ -16,6 +16,7 @@ import {
   type PaymentGateway,
 } from '../src/modules/purchases/ports.js';
 import { hashToken, PurchaseError, PurchaseService, RESERVATION_TTL_MS } from '../src/modules/purchases/service.js';
+import { PaypalWebhookHandler, providerOrderIdOf } from '../src/modules/webhooks/paypal.js';
 import { createTestDb } from './helpers/pglite.js';
 
 const NOW = new Date('2026-11-10T12:00:00Z');
@@ -82,6 +83,8 @@ class FakePayments implements PaymentGateway {
   captures: { orderId: string; key: string; expected: unknown }[] = [];
   createResult: GatewayOrder | Error = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED', approveUrl: 'https://www.sandbox.paypal.com/checkoutnow?token=PP123' };
   captureResult: GatewayOrder | GatewayError | Error = { providerOrderId: 'PP123', status: 'COMPLETED' };
+  getResult: GatewayOrder | Error = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED' };
+  verifyResult: boolean | Error = true;
 
   createOrder(input: { amount: unknown; idempotencyKey: string; reference: string; description: string }) {
     this.creates.push(input);
@@ -91,6 +94,14 @@ class FakePayments implements PaymentGateway {
   captureOrder(orderId: string, key: string, expected: unknown) {
     this.captures.push({ orderId, key, expected });
     return this.captureResult instanceof Error ? Promise.reject(this.captureResult) : Promise.resolve(this.captureResult);
+  }
+
+  getOrder() {
+    return this.getResult instanceof Error ? Promise.reject(this.getResult) : Promise.resolve(this.getResult);
+  }
+
+  verifyWebhook() {
+    return this.verifyResult instanceof Error ? Promise.reject(this.verifyResult) : Promise.resolve(this.verifyResult);
   }
 }
 
@@ -534,6 +545,200 @@ describe('sweepExpired', () => {
     }
     await expect(later.capture(orderReq.view.id)).rejects.toMatchObject({ code: 'INVALID_STATE' });
     expect(await later.sweepExpired()).toBe(0);
+  });
+});
+
+describe('reconcile', () => {
+  async function allowed(payments = new FakePayments()) {
+    const mandateId = await newMandate();
+    const { svc } = service({}, payments);
+    const { view } = await submit(svc, mandateId);
+    return { svc, view, payments, mandateId };
+  }
+  const reservation = async (mandateId: string) =>
+    (await db.query<{ state: string }>('SELECT state FROM budget_reservation WHERE mandate_id = $1', [mandateId])).rows[0]?.state;
+
+  it('an unconfirmed create is retried with the same idempotency key, never a new one', async () => {
+    const payments = new FakePayments();
+    payments.createResult = new GatewayError('UNKNOWN_OUTCOME', 'UNKNOWN_OUTCOME');
+    const { svc, view } = await allowed(payments);
+    expect(view.status).toBe('UNKNOWN_OUTCOME');
+
+    payments.createResult = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED', approveUrl: 'https://www.sandbox.paypal.com/checkoutnow?token=PP123' };
+    const settled = await svc.reconcile(view.id);
+    expect(settled).toMatchObject({ status: 'PAYMENT_PENDING', order: { state: 'PAYMENT_PENDING', approveUrl: expect.stringMatching(/^https:/) as unknown } });
+    expect(payments.creates).toHaveLength(2);
+    expect(payments.creates[1]?.idempotencyKey).toBe(payments.creates[0]?.idempotencyKey);
+  });
+
+  it('settles an unknown capture as CAPTURED when PayPal reports the exact amount captured', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await allowed(payments);
+    payments.captureResult = new GatewayError('UNKNOWN_OUTCOME', 'UNKNOWN_OUTCOME');
+    expect((await svc.capture(view.id)).status).toBe('UNKNOWN_OUTCOME');
+
+    payments.getResult = { providerOrderId: 'PP123', status: 'COMPLETED', capturedAmount: { amountMinor: 1000, currency: 'USD' } };
+    expect(await svc.reconcile(view.id)).toMatchObject({ status: 'CAPTURED', order: { state: 'CAPTURED' } });
+    expect(await reservation(mandateId)).toBe('COMMITTED');
+  });
+
+  it('never settles a capture for a different amount: it stays UNKNOWN_OUTCOME for a human', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await allowed(payments);
+    payments.getResult = { providerOrderId: 'PP123', status: 'COMPLETED', capturedAmount: { amountMinor: 999, currency: 'USD' } };
+    expect(await svc.reconcile(view.id)).toMatchObject({ status: 'UNKNOWN_OUTCOME', order: { state: 'UNKNOWN_OUTCOME' } });
+    expect(await reservation(mandateId)).toBe('HELD');
+    expect(await count("SELECT count(*) AS n FROM audit_log WHERE subject_id = $1 AND action = 'payment.amount_mismatch'", [view.id])).toBe(1);
+  });
+
+  it('fails a VOIDED order and releases the budget', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await allowed(payments);
+    payments.getResult = { providerOrderId: 'PP123', status: 'VOIDED' };
+    expect(await svc.reconcile(view.id)).toMatchObject({ status: 'FAILED', failureCode: 'PAYPAL_VOIDED' });
+    expect(await reservation(mandateId)).toBe('RELEASED');
+  });
+
+  it('captures once the buyer has APPROVED on PayPal', async () => {
+    const payments = new FakePayments();
+    const { svc, view } = await allowed(payments);
+    payments.getResult = { providerOrderId: 'PP123', status: 'APPROVED' };
+    expect((await svc.reconcile(view.id)).status).toBe('CAPTURED');
+    expect(payments.captures).toHaveLength(1);
+  });
+
+  it('leaves an APPROVED order pending when PayPal refuses the capture', async () => {
+    const payments = new FakePayments();
+    const { svc, view } = await allowed(payments);
+    payments.getResult = { providerOrderId: 'PP123', status: 'APPROVED' };
+    payments.captureResult = new GatewayError('REJECTED', 'PAYPAL_UNPROCESSABLE');
+    expect((await svc.reconcile(view.id)).status).toBe('PAYMENT_PENDING');
+  });
+
+  it('changes nothing when PayPal cannot be asked, or the buyer has not paid yet', async () => {
+    const payments = new FakePayments();
+    const { svc, view } = await allowed(payments);
+    payments.getResult = new GatewayError('REJECTED', 'PAYPAL_UNAVAILABLE');
+    expect((await svc.reconcile(view.id)).status).toBe('PAYMENT_PENDING');
+    payments.getResult = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED' };
+    expect(await svc.reconcile(view.id)).toMatchObject({ status: 'PAYMENT_PENDING', order: { providerStatus: 'PAYER_ACTION_REQUIRED' } });
+  });
+
+  it('is a no-op on a settled order and refuses unknown requests', async () => {
+    const { svc, view } = await allowed();
+    await svc.capture(view.id);
+    expect((await svc.reconcile(view.id)).status).toBe('CAPTURED');
+    await expect(svc.reconcile('00000000-0000-4000-8000-0000000000ff')).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
+  it('reconcileUnknown settles what it can and counts it', async () => {
+    const payments = new FakePayments();
+    payments.createResult = new GatewayError('UNKNOWN_OUTCOME', 'UNKNOWN_OUTCOME');
+    const { svc } = await allowed(payments);
+    payments.createResult = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED' };
+    expect(await svc.reconcileUnknown()).toBeGreaterThanOrEqual(1);
+    expect(await count("SELECT count(*) AS n FROM payment_order WHERE state = 'UNKNOWN_OUTCOME' AND provider_order_id IS NULL")).toBe(0);
+  });
+});
+
+describe('PayPal webhooks', () => {
+  const approvedEvent = (id: string, orderId = 'PP123') => ({ id, event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: orderId, status: 'APPROVED' } });
+
+  async function setup(verify: boolean | Error = true) {
+    const payments = new FakePayments();
+    payments.verifyResult = verify;
+    const mandateId = await newMandate();
+    const { svc } = service({}, payments);
+    const { view } = await submit(svc, mandateId);
+    // Each test gets its own PayPal order id so webhooks from other tests never match.
+    const providerOrderId = `PPW${next()}`;
+    await db.query('UPDATE payment_order SET provider_order_id = $2 WHERE purchase_request_id = $1', [view.id, providerOrderId]);
+    payments.getResult = { providerOrderId, status: 'APPROVED' };
+    const handler = new PaypalWebhookHandler({ db, payments, purchases: svc });
+    return { handler, svc, view, payments, providerOrderId };
+  }
+
+  it('verifies, stores and reconciles: an APPROVED event leads to a capture checked against PayPal', async () => {
+    const { handler, svc, view, providerOrderId } = await setup();
+    const eventId = `WH-${next()}`;
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 200, result: 'processed' });
+    expect((await svc.get(view.id)).status).toBe('CAPTURED');
+    const stored = await db.query<{ processing_state: string; signature_verified: boolean }>(
+      'SELECT processing_state, signature_verified FROM webhook_event WHERE provider_event_id = $1',
+      [eventId],
+    );
+    expect(stored.rows[0]).toEqual({ processing_state: 'PROCESSED', signature_verified: true });
+  });
+
+  it('dedupes a redelivery by event id', async () => {
+    const { handler, providerOrderId, payments } = await setup();
+    const eventId = `WH-${next()}`;
+    await handler.handle({}, approvedEvent(eventId, providerOrderId));
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 200, result: 'duplicate' });
+    expect(payments.captures).toHaveLength(1);
+  });
+
+  it('stores an unverified event for forensics and never acts on it', async () => {
+    const { handler, svc, view, providerOrderId, payments } = await setup(false);
+    const eventId = `WH-${next()}`;
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 401, result: 'unverified' });
+    expect((await svc.get(view.id)).status).toBe('PAYMENT_PENDING');
+    expect(payments.captures).toEqual([]);
+    const stored = await db.query<{ processing_state: string; signature_verified: boolean }>(
+      'SELECT processing_state, signature_verified FROM webhook_event WHERE provider_event_id = $1',
+      [eventId],
+    );
+    expect(stored.rows[0]).toEqual({ processing_state: 'IGNORED', signature_verified: false });
+    // A forged event cannot be "upgraded" by redelivering it later with a valid signature.
+    payments.verifyResult = true;
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 200, result: 'duplicate' });
+  });
+
+  it('answers 503 when PayPal cannot verify, so PayPal redelivers', async () => {
+    const { handler, providerOrderId } = await setup(new Error('paypal down'));
+    expect(await handler.handle({}, approvedEvent(`WH-${next()}`, providerOrderId))).toEqual({ status: 503, result: 'verification_unavailable' });
+  });
+
+  it('retries a verified event whose processing failed', async () => {
+    const { handler, svc, view, providerOrderId } = await setup();
+    const eventId = `WH-${next()}`;
+    vi.spyOn(svc, 'reconcile').mockRejectedValueOnce(new Error('transient'));
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 503, result: 'processing_failed' });
+    // PayPal redelivers the same event id; this time it is processed.
+    expect(await handler.handle({}, approvedEvent(eventId, providerOrderId))).toEqual({ status: 200, result: 'processed' });
+    expect((await svc.get(view.id)).status).toBe('CAPTURED');
+  });
+
+  it.each([
+    ['an event for an order we do not know', { id: 'WH-unknown-order', event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: 'NOTOURS1' } }],
+    ['an event type we do not handle', { id: 'WH-other-type', event_type: 'BILLING.PLAN.CREATED', resource: { id: 'P-1' } }],
+  ])('ignores %s', async (_label, event) => {
+    const { handler } = await setup();
+    expect(await handler.handle({}, { ...event, id: `${event.id}-${next()}` })).toEqual({ status: 200, result: 'ignored' });
+  });
+
+  it('rejects a malformed event', async () => {
+    const { handler } = await setup();
+    expect(await handler.handle({}, { event_type: 'X' })).toEqual({ status: 400, result: 'malformed' });
+  });
+
+  it('finds the order id on capture events', () => {
+    expect(providerOrderIdOf('PAYMENT.CAPTURE.COMPLETED', { id: 'CAP1', supplementary_data: { related_ids: { order_id: 'PP9' } } })).toBe('PP9');
+    expect(providerOrderIdOf('PAYMENT.CAPTURE.COMPLETED', { id: 'CAP1' })).toBeUndefined();
+    expect(providerOrderIdOf('CHECKOUT.ORDER.APPROVED', { id: 'lower-case-not-an-id' })).toBeUndefined();
+  });
+
+  it('is served at POST /webhooks/paypal', async () => {
+    const { handler, providerOrderId, svc } = await setup();
+    const app = await buildApp({ config: { logLevel: 'silent' }, logger: false, purchases: svc, paypalWebhooks: handler });
+    try {
+      const ok = await app.inject({ method: 'POST', url: '/webhooks/paypal', payload: approvedEvent(`WH-${next()}`, providerOrderId) });
+      expect(ok.json()).toEqual({ result: 'processed' });
+      const bad = await app.inject({ method: 'POST', url: '/webhooks/paypal', payload: { nope: true } });
+      expect(bad.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
   });
 });
 
