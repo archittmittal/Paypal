@@ -4,14 +4,19 @@
   "type": "module",
   "packageManager": "pnpm@11.14.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.18.0"
   },
   "scripts": {
     "dev": "pnpm --filter @mandate/api dev",
+    "db:migrate": "pnpm --filter @mandate/db migrate",
+    "db:seed": "pnpm --filter @mandate/db seed",
+    "db:roles": "pnpm --filter @mandate/db roles",
+    "db:harden": "pnpm --filter @mandate/db harden",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
+    "test:db": "pnpm --filter @mandate/db test:db",
     "smoke:offline": "pnpm -r --if-present smoke:offline",
     "smoke:live": "pnpm -r --if-present smoke:live"
   },

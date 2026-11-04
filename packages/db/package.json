@@ -1,0 +1,26 @@
+{
+  "name": "@mandate/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "migrate": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/migrate.ts",
+    "seed": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/seed.ts",
+    "roles": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/roles.ts",
+    "harden": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/harden.ts",
+    "test:db": "vitest run --config vitest.db.config.ts"
+  },
+  "dependencies": {
+    "@mandate/policy": "workspace:*",
+    "@mandate/shared": "workspace:*",
+    "pg": "8.23.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  }
+}

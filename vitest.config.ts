@@ -1,8 +1,10 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     include: ['packages/*/{src,test}/**/*.test.ts', 'apps/*/{src,test}/**/*.test.ts', 'tests/**/*.test.ts'],
+    // *.db.test.ts needs a real Postgres; it runs in `pnpm test:db` (packages/db/vitest.db.config.ts).
+    exclude: [...configDefaults.exclude, '**/*.db.test.ts'],
     environment: 'node',
     coverage: {
       provider: 'v8',
