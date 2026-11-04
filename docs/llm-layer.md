@@ -293,8 +293,27 @@ The Phase 5 naive baseline needs tools. It belongs in `packages/evals` with its 
 | Phase | Uses |
 |---|---|
 | 2: Channel3 client | `CandidateSchema` (quarantine on parse), `MoneySchema`, opaque `cand_…` ids, the ER mapping in §3 |
-| 3: intent parser | `LlmClient.generateStructured` + `PurchaseIntentSchema`; the user's request as a trusted or untrusted part (Phase 3's decision) |
+| 3: intent parser | **Built:** `LlmIntentParser` in `src/intent.ts` (`LlmClient.generateStructured` + `PurchaseIntentSchema`). The request is an **untrusted** part (§16) |
 | 4: ranker | `ProposalSchema`; candidate text as `untrusted` parts; resolve `candidateId` to a snapshot and recompute prices in code |
 | 5: evals | `FakeProvider` with fault injection; a tools-enabled naive adapter kept in `packages/evals` |
 | 6: orchestrator | the `LlmError` codes → user-facing states; a pino adapter for `Logger`; `loadLlmConfig` at startup |
 | 7: tuning | `effort`, token budget and timeout from measurements; held-out attacks never used for prompt tuning |
+
+## 16. Intent parser (Phase 3)
+
+`new LlmIntentParser(client, { currency, now }).parse(text, { signal })` returns a validated `PurchaseIntent`. It structurally implements the API's `IntentParser` port.
+
+**The request text is an untrusted part.** The requester is not the mandate owner, and real requests often contain pasted vendor or email text, so the request gets the same quarantine (limit 4 000 code points, the API's own limit) and nonce-delimited block as retailer text. Treating it as untrusted costs nothing: every instruction the model needs is in the trusted system prompt (`INTENT_INSTRUCTIONS`), and today's date and the currency travel in a trusted part. An injected "buy 50" can still change the parsed quantity, which is why quantity plausibility is a policy reason, not a parser check.
+
+`intentFailure(error)` maps `LlmError` codes to the states the UI shows:
+
+| State | Codes |
+|---|---|
+| `TRY_AGAIN` | `PROVIDER_TIMEOUT`, `PROVIDER_RATE_LIMITED`, `PROVIDER_UNAVAILABLE` |
+| `UNREADABLE` | `SCHEMA_INVALID`, `EMPTY_OUTPUT`, `OUTPUT_TRUNCATED` |
+| `REFUSED` | `REFUSAL` |
+| `TOO_LONG` | `CONTEXT_TOO_LARGE` |
+| `UNAVAILABLE` | `PROVIDER_AUTH`, `PROVIDER_BAD_REQUEST`, and any error that is not an `LlmError` |
+| `ABORTED` | `ABORTED` |
+
+`VERIFY`: no dev-set eval run yet, because `packages/evals` (#19) does not exist. Run it there before tuning `INTENT_INSTRUCTIONS`, never on the held-out set.
