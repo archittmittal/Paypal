@@ -3,10 +3,14 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { ApiConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { healthRoutes, type ReadinessCheck } from './modules/health/routes.js';
+import { purchaseRoutes } from './modules/purchases/routes.js';
+import type { PurchaseService } from './modules/purchases/service.js';
 
 export interface AppOptions {
   config: Pick<ApiConfig, 'logLevel'>;
   readinessChecks?: readonly ReadinessCheck[];
+  /** Registered only when the database and every port (LLM, catalog, PayPal) are configured. */
+  purchases?: PurchaseService;
   /** Tests pass false to keep output quiet. */
   logger?: boolean;
 }
@@ -44,5 +48,6 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   });
 
   await app.register(healthRoutes(options.readinessChecks ?? []));
+  if (options.purchases) await app.register(purchaseRoutes(options.purchases));
   return app;
 }

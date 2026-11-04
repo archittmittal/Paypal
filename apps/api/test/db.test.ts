@@ -50,10 +50,10 @@ async function decision(): Promise<string> {
 }
 
 describe('migrations', () => {
-  it('ships 0001_init and records it', async () => {
-    expect(migrations.map((m) => m.version)).toEqual(['0001']);
-    const { rows } = await db.query<{ version: string; checksum: string }>('SELECT version, checksum FROM schema_migrations');
-    expect(rows).toEqual([{ version: '0001', checksum: migrations[0]?.checksum }]);
+  it('applies every shipped migration in order and records its checksum', async () => {
+    expect(migrations[0]?.version).toBe('0001');
+    const { rows } = await db.query<{ version: string; checksum: string }>('SELECT version, checksum FROM schema_migrations ORDER BY version');
+    expect(rows).toEqual(migrations.map((m) => ({ version: m.version, checksum: m.checksum })));
   });
 
   it('is a no-op the second time', async () => {
@@ -73,13 +73,13 @@ describe('migrations', () => {
     const fresh = await createTestDb();
     try {
       const extra: Migration[] = [
-        { version: '0002', name: 'ok', sql: 'CREATE TABLE t2 (id int);', checksum: 'a' },
-        { version: '0003', name: 'bad', sql: 'CREATE TABLE t3 (id nonsense_type);', checksum: 'b' },
+        { version: '9001', name: 'ok', sql: 'CREATE TABLE t2 (id int);', checksum: 'a' },
+        { version: '9002', name: 'bad', sql: 'CREATE TABLE t3 (id nonsense_type);', checksum: 'b' },
       ];
       await expect(migrate(fresh, [...migrations, ...extra])).rejects.toThrow();
       const { rows } = await fresh.query("SELECT to_regclass('organization') AS t");
       expect(rows).toEqual([{ t: null }]);
-      expect(await migrate(fresh, [...migrations, extra[0]!])).toEqual(['0001', '0002']);
+      expect(await migrate(fresh, [...migrations, extra[0]!])).toEqual([...migrations.map((m) => m.version), '9001']);
     } finally {
       await fresh.close();
     }

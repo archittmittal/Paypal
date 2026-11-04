@@ -35,6 +35,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@mandate/payments':
+        specifier: workspace:*
+        version: link:../../packages/payments
       '@mandate/policy':
         specifier: workspace:*
         version: link:../../packages/policy

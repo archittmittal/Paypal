@@ -17,7 +17,8 @@ describe.skipIf(!url)('Postgres integration', () => {
   beforeAll(async () => {
     db = createPgDb(createPgPool(url ?? ''));
     await db.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
-    expect(await migrate(db, loadMigrations())).toEqual(['0001']);
+    const migrations = loadMigrations();
+    expect(await migrate(db, migrations)).toEqual(migrations.map((m) => m.version));
     await seed(db);
   }, 60_000);
 
