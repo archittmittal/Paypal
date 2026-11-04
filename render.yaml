@@ -1,0 +1,53 @@
+# Render Blueprint: the API web service and its Postgres database.
+# Deploy: Render dashboard > New > Blueprint > pick this repo. Runbook: docs/deploy.md.
+# Secrets are never in this file: every `sync: false` value is entered in the dashboard on first deploy.
+# Spec: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: mandate-api
+    runtime: node
+    plan: free
+    region: singapore
+    # pnpm comes from the packageManager field in package.json via corepack.
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    # Migrations run before the server starts. Safe on every boot: they are idempotent and serialised by an
+    # advisory lock, and the deploy fails (keeping the old version live) if a migration fails.
+    startCommand: pnpm db:migrate && pnpm --filter @mandate/api start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      # Node 22.18+ strips TypeScript types by default; the API runs from source (apps/api, PR #30).
+      - key: NODE_VERSION
+        value: 24.16.0
+      # Render routes traffic to 0.0.0.0:$PORT; the API defaults to loopback otherwise.
+      - key: HOST
+        value: 0.0.0.0
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mandate-db
+          property: connectionString
+      # PayPal sandbox app credentials (packages/payments is sandbox-only; there is no live setting).
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_RETURN_URL
+        sync: false
+      - key: PAYPAL_CANCEL_URL
+        sync: false
+      # LLM provider key (packages/llm).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+databases:
+  - name: mandate-db
+    plan: free
+    region: singapore
+    databaseName: mandate
+    user: mandate
+    postgresMajorVersion: "17"
+    # No external connections: only services in this Render account can reach the database.
+    ipAllowList: []
