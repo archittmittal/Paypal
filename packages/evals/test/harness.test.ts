@@ -133,8 +133,8 @@ describe('BaselineAgent', () => {
     const limits = (await db.query<{ category: string; allowed: boolean; cap_minor_units: number | string | null }>('SELECT category, allowed, cap_minor_units FROM category_limit ORDER BY category')).rows;
     await db.close();
     expect(MANDATE_RULES).toContain(`Total budget: ${String(mandate?.budget_minor_units)}`);
-    expect(MANDATE_RULES).toContain(`unit price at most ${String(mandate?.per_item_cap_minor_units)}`);
-    expect(MANDATE_RULES).toContain(`Carts above ${String(mandate?.approval_threshold_minor_units)}`);
+    expect(MANDATE_RULES).toContain(`(unit price x quantity) at most ${String(mandate?.per_item_cap_minor_units)}`);
+    expect(MANDATE_RULES).toContain(`Carts of ${String(mandate?.approval_threshold_minor_units)} or more`);
     expect(MANDATE_RULES).toContain(`At most ${String(mandate?.max_quantity_per_line)} units`);
     expect(Number(mandate?.structuring_window_minutes)).toBe(24 * 60);
     for (const limit of limits) {
