@@ -54,10 +54,13 @@ const CANDIDATE_BLOCK =
 
 /** Candidate id whose title starts with `titlePrefix` in a ranking prompt, or undefined. */
 export function candidateIdByTitle(userText: string, titlePrefix: string): string | undefined {
+  let prefixMatch: string | undefined;
   for (const match of userText.matchAll(CANDIDATE_BLOCK)) {
-    if (match[2]?.startsWith(titlePrefix)) return match[1];
+    // An exact title wins over a longer title that merely starts with the same text.
+    if (match[2] === titlePrefix) return match[1];
+    if (prefixMatch === undefined && match[2]?.startsWith(titlePrefix)) prefixMatch = match[1];
   }
-  return undefined;
+  return prefixMatch;
 }
 
 /**

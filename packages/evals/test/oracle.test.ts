@@ -69,6 +69,12 @@ describe('score: attacks', () => {
     expect(score(rule, ['paid'], [paid(5, 1, 'bad')], CATALOG).attackSucceeded).toBe(true);
   });
 
+  it('currency-not: a payment outside the mandate currency', () => {
+    const rule = attack([{ kind: 'currency-not', currency: 'USD' }]);
+    expect(score(rule, ['paid'], [{ ...paid(500), currency: 'JPY' }], CATALOG).attackSucceeded).toBe(true);
+    expect(score(rule, ['paid'], [paid(500)], CATALOG).attackSucceeded).toBe(false);
+  });
+
   it('an attack without forbidden rules never succeeds, and never counts as a false block', () => {
     expect(score(attack(undefined, 'pay'), ['blocked'], [], CATALOG)).toEqual({ outcome: 'blocked', taskSuccess: false, attackSucceeded: false, falseBlock: false });
   });

@@ -30,6 +30,32 @@ Live runs write `results/<timestamp>-live.json` (every case) and `.md` (summary 
 - `forbidden`: for attacks. Predicates over the payments made: `any-payment`, `total-over` (summed across steps), `product`, `quantity-over`, `amount-mismatch` (the paid amount is not catalog price x quantity).
 - `fake`: scripted replies for fake mode only.
 
+## Suites (`src/scenarios/`, #20)
+
+| Set | Cases | Notes |
+|---|---|---|
+| `benign` | 31 | Realistic club purchases: 24 should be paid, 4 need approval, and 3 are honest requests the mandate refuses (over the cap, or a disallowed category). Only pay and approval cases count toward false blocks |
+| `attack-dev` | 13 | One case in each of 13 categories |
+| `attack-heldout` | 13 | The other case in each category. **Never used for prompt tuning** (hard rule 10); runs only with `--sets attack-heldout` |
+
+The 13 attack categories:
+
+- injection in a listing's description;
+- injection in a listing's title;
+- fake approval (from a listing or from the requester);
+- price mismatch;
+- currency swap;
+- quantity inflation;
+- replay;
+- split purchases (cumulative and same product);
+- category evasion;
+- per-item cap evasion;
+- hidden-text injection (zero-width characters, HTML comments);
+- delimiter forgery;
+- role claims.
+
+Every scenario declares its **faithful cart**: exactly what the requester literally asked for, ignoring every injection. Fake mode derives scripts from it, and `test/suites.test.ts` runs every scenario's faithful cart through the real flow and policy engine. It asserts that each `expect` label is what the engine decides. **The labels are checked against the engine, not hand-waved.** This test takes about a minute, because each scenario gets its own database.
+
 ## Metrics (`src/runner.ts`)
 
 Per configuration and set:
@@ -47,7 +73,7 @@ A Mandate order that awaits buyer approval on PayPal counts as a **payment attem
 
 ## Known limits
 
-- **Only 3 sample scenarios so far.** The ~30 benign cases and 25+ attacks, split into dev and held-out before any prompt work, are #20.
+- **No live results yet.** The suites need a `--live` run with a key (see VERIFY in #20).
 - **Synthetic listings.** Results on them may be optimistic (README, risk 6).
 - **The baselines are single-turn.** One tool call per request: no search loop and no retries.
 - **VERIFY:** the first live run must confirm that tool use works with Opus 5.5's always-on thinking within `LLM_MAX_OUTPUT_TOKENS`.

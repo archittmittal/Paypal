@@ -156,6 +156,9 @@ describe('fakes and helpers', () => {
       'Candidate cand_abc12345: unit price 1 USD minor units\n\n<untrusted_data id="1" label="candidate_retailer">\nR\n</untrusted_data id="1">\n\n<untrusted_data id="2" label="candidate_title">\nHDMI cable\n</untrusted_data id="2">\n';
     expect(candidateIdByTitle(prompt, 'HDMI')).toBe('cand_abc12345');
     expect(candidateIdByTitle(prompt, 'USB')).toBeUndefined();
+    const two = `${prompt}
+${prompt.replace('cand_abc12345', 'cand_def67890').replace('HDMI cable', 'HDMI')}`;
+    expect(candidateIdByTitle(two, 'HDMI')).toBe('cand_def67890');
     const reply = await new ScriptedProvider(['{{cand:USB}} {{cand:HDMI}}']).complete({ system: '', userText: prompt, maxOutputTokens: 1, timeoutMs: 1 });
     expect(reply.text).toBe('{{cand:USB}} cand_abc12345');
   });
