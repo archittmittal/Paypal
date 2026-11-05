@@ -16,4 +16,5 @@ export * from './intent.js';
 export * from './logger.js';
 export * from './prompt.js';
 export * from './provider.js';
+export * from './ranker.js';
 export * from './time.js';
