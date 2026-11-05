@@ -74,6 +74,19 @@ describe('MandateApi', () => {
     expect(mandateFetch.mock.calls[0]?.[1]?.method).toBe('PATCH');
   });
 
+  it('previews and decides approvals with the token in the body, never the URL', async () => {
+    const preview = respond(200, { purchase: PURCHASE, approval: { status: 'PENDING', expiresAt: '2026-11-06T10:00:00.000Z' } });
+    const token = 'T'.repeat(43);
+    await expect(new MandateApi('http://api.example', preview).previewApproval(token)).resolves.toMatchObject({ approval: { status: 'PENDING' } });
+    const decide = respond(200, PURCHASE);
+    await new MandateApi('http://api.example', decide).decideApproval(token, 'REJECT');
+    for (const [url, init] of [...preview.mock.calls, ...decide.mock.calls]) {
+      expect(url).not.toContain(token);
+      expect(init?.method).toBe('POST');
+    }
+    expect(JSON.parse(decide.mock.calls[0]?.[1]?.body as string)).toEqual({ token, decision: 'REJECT', channel: 'zapier' });
+  });
+
   it('makes request keys the API accepts', () => {
     expect(newRequestKey()).toMatch(/^[A-Za-z0-9_-]{8,128}$/);
     expect(newRequestKey()).not.toBe(newRequestKey());

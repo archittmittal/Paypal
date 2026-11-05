@@ -41,6 +41,8 @@ apps/api          Fastify API: health/ready, error handling, config; Postgres mi
                   injected listings for evals); Channel3 adapter pending VERIFY
                   modules/mandates: GET/PATCH /mandates/:id (admin-only, audited), /summary (spend, held, approvals,
                   blocked), /purchases list for the UI; CORS for WEB_ORIGIN only
+                  modules/approvals/zapier.ts: NEEDS_APPROVAL -> Zapier Catch Hook with a review link (token in the URL
+                  fragment); POST /approvals/preview + /approvals/decision back it; web #/approve/<token> (docs/zapier.md)
                   compose.ts: wires parser/ranker/catalog/PayPal per available config; jobs.ts: 60 s sweepExpired + reconcileUnknown
                   (modules to come: audit views)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests

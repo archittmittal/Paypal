@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { DEMO_PEOPLE } from './config';
+import { ApproveScreen } from './screens/ApproveScreen';
 import { MandateScreen } from './screens/MandateScreen';
 import { PurchaseScreen } from './screens/PurchaseScreen';
 import { RequestScreen } from './screens/RequestScreen';
@@ -16,10 +17,12 @@ export const ROUTES: Route[] = [
 ];
 
 const PURCHASE_ROUTE = /^#\/purchases\/([0-9a-f-]{36})$/;
+/** The approver's link from the Zapier message: a 43-character single-use token. */
+const APPROVE_ROUTE = /^#\/approve\/([A-Za-z0-9_-]{43})$/;
 
 /** Hash routes keep the static build host-agnostic: no server rewrites needed. */
 export function resolvePath(hash: string): string {
-  if (ROUTES.some((route) => route.path === hash) || PURCHASE_ROUTE.test(hash)) return hash;
+  if (ROUTES.some((route) => route.path === hash) || PURCHASE_ROUTE.test(hash) || APPROVE_ROUTE.test(hash)) return hash;
   return '#/request';
 }
 
@@ -77,6 +80,7 @@ export function App() {
           </Suspense>
         )}
         {path === '#/mandate' && <MandateScreen actorId={actorId} />}
+        {APPROVE_ROUTE.test(path) && <ApproveScreen token={APPROVE_ROUTE.exec(path)?.[1] ?? ''} />}
         {PURCHASE_ROUTE.test(path) && <PurchaseScreen purchaseId={PURCHASE_ROUTE.exec(path)?.[1] ?? ''} />}
       </main>
     </div>

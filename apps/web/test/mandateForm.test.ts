@@ -96,5 +96,7 @@ describe('routes', () => {
     expect(resolvePath('#/purchases/00000000-0000-4000-8000-0000000000a1')).toBe('#/purchases/00000000-0000-4000-8000-0000000000a1');
     expect(resolvePath('#/purchases/<script>')).toBe('#/request');
     expect(resolvePath('')).toBe('#/request');
+    expect(resolvePath(`#/approve/${'a'.repeat(43)}`)).toBe(`#/approve/${'a'.repeat(43)}`);
+    expect(resolvePath('#/approve/short')).toBe('#/request');
   });
 });
