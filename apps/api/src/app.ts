@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { ApiConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { healthRoutes, type ReadinessCheck } from './modules/health/routes.js';
@@ -14,6 +14,11 @@ export interface AppOptions {
   purchases?: PurchaseService;
   /** Registered only when PAYPAL_WEBHOOK_ID is configured, so signatures can be verified. */
   paypalWebhooks?: PaypalWebhookHandler;
+  /**
+   * Builds the services with the app's own logger, for the server entry point. Its result is used when
+   * `purchases` and `paypalWebhooks` are not passed directly.
+   */
+  compose?: (log: FastifyBaseLogger) => { purchases?: PurchaseService; paypalWebhooks?: PaypalWebhookHandler };
   /** Tests pass false to keep output quiet. */
   logger?: boolean;
 }
@@ -50,8 +55,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     void reply.header('x-request-id', request.id);
   });
 
+  const composed = options.compose?.(app.log) ?? {};
+  const purchases = options.purchases ?? composed.purchases;
+  const paypalWebhooks = options.paypalWebhooks ?? composed.paypalWebhooks;
+
   await app.register(healthRoutes(options.readinessChecks ?? []));
-  if (options.purchases) await app.register(purchaseRoutes(options.purchases));
-  if (options.paypalWebhooks) await app.register(paypalWebhookRoutes(options.paypalWebhooks));
+  if (purchases) await app.register(purchaseRoutes(purchases));
+  if (paypalWebhooks) await app.register(paypalWebhookRoutes(paypalWebhooks));
   return app;
 }

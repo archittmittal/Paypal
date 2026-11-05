@@ -36,6 +36,7 @@ apps/api          Fastify API: health/ready, error handling, config; Postgres mi
                   reconcile(): settles orders from PayPal's getOrder; webhooks/paypal.ts: verify -> dedupe -> reconcile
                   modules/catalog: RawProduct -> CandidateSchema normalization (drop + count), FixtureCatalog (offline, has
                   injected listings for evals); Channel3 adapter pending VERIFY
+                  compose.ts: wires parser/ranker/catalog/PayPal per available config; jobs.ts: 60 s sweepExpired + reconcileUnknown
                   (modules to come: audit views)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)

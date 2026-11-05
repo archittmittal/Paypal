@@ -14,11 +14,15 @@ The API and its Postgres database are described as code in [`render.yaml`](../re
    | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Sandbox app credentials from developer.paypal.com → Apps & Credentials (**Sandbox** tab) |
    | `PAYPAL_RETURN_URL`, `PAYPAL_CANCEL_URL` | `https://<web app URL>/paypal/return` and `/paypal/cancel` (any https URL until the web app exists) |
    | `ANTHROPIC_API_KEY` | The team's LLM key |
+   | `PAYPAL_WEBHOOK_ID` | Optional at first. After the first deploy, add a webhook for `https://<service>.onrender.com/webhooks/paypal` on the sandbox app, then paste its id here |
+
+   The purchase routes are registered only when `DATABASE_URL`, `ANTHROPIC_API_KEY`, `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` are all set. The webhook route also needs `PAYPAL_WEBHOOK_ID`. At boot, the log line `feature disabled: configuration missing` names any variable that is missing (names only, never values). The catalog is the offline fixture until Channel3 is verified (#16).
 
    Never paste these into git, issues, PRs or chat. Judges get sandbox credentials only through the Devpost testing instructions (hard rule 7).
 3. **Apply.** Render creates `mandate-db`, then builds and starts `mandate-api`. The start command runs `pnpm db:migrate` first.
 4. Check: `https://<service>.onrender.com/health` returns `{"status":"ok"}`, and `/ready` returns `{"status":"ready","checks":{"postgres":"ok"}}`.
 5. Seed the demo data once: service → **Shell** → `pnpm db:seed`.
+6. Background jobs run inside the web service every 60 s: expired approvals are swept, and orders in `UNKNOWN_OUTCOME` are reconciled from PayPal's `getOrder`. This assumes **one instance**. The sweep locks each row, but `reconcile()` does not, so don't scale the service out until it does.
 
 ## Every deploy after that
 
