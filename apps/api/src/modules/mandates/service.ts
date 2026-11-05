@@ -2,7 +2,7 @@ import type { Mandate } from '@mandate/policy';
 import { toBigInt, type Db } from '../../db/db.js';
 import { lockMandate } from '../purchases/policy-inputs.js';
 
-export type MandateErrorCode = 'MANDATE_NOT_FOUND' | 'ACTOR_NOT_ALLOWED';
+export type MandateErrorCode = 'MANDATE_NOT_FOUND' | 'ACTOR_NOT_ALLOWED' | 'PURCHASE_NOT_FOUND';
 
 export class MandateError extends Error {
   readonly code: MandateErrorCode;
@@ -67,6 +67,15 @@ export interface PurchaseListItem {
   reasonCodes: string[];
   totalMinor: number | null;
   currency: string | null;
+}
+
+export interface AuditEntry {
+  at: string;
+  actorType: string;
+  /** A user id for people; null for the agent and the system. */
+  actorId: string | null;
+  action: string;
+  policyVersion: string | null;
 }
 
 const num = (value: unknown): number => Number(toBigInt(value ?? 0));
@@ -242,4 +251,20 @@ export class MandateService {
       };
     });
   }
+
+  /**
+   * The audit trail of one request, oldest first. Only who, what and when: the `detail` payloads stay
+   * server-side, since some hold model output or retailer text.
+   */
+  async audit(purchaseId: string): Promise<AuditEntry[]> {
+    const exists = await this.#db.query('SELECT 1 FROM purchase_request WHERE id = $1', [purchaseId]);
+    if (exists.rows.length === 0) throw new MandateError('PURCHASE_NOT_FOUND');
+    const { rows } = await this.#db.query<{ created_at: Date | string; actor_type: string; actor_id: string | null; action: string; policy_version: string | null }>(
+      `SELECT created_at, actor_type, actor_id, action, policy_version FROM audit_log
+        WHERE subject_type = 'purchase_request' AND subject_id = $1 ORDER BY created_at, id`,
+      [purchaseId],
+    );
+    return rows.map((r) => ({ at: new Date(r.created_at).toISOString(), actorType: r.actor_type, actorId: r.actor_id, action: r.action, policyVersion: r.policy_version }));
+  }
 }
+

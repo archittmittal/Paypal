@@ -158,6 +158,24 @@ describe('GET /mandates/:id/purchases', () => {
   });
 });
 
+describe('GET /purchases/:id/audit', () => {
+  it('returns who did what, oldest first, without detail payloads', async () => {
+    const list = await app.inject({ method: 'GET', url: `/mandates/${DEMO_IDS.mandate}/purchases?status=DENIED` });
+    const id = list.json<{ items: { id: string }[] }>().items[0]?.id ?? '';
+    const response = await app.inject({ method: 'GET', url: `/purchases/${id}/audit` });
+    expect(response.statusCode).toBe(200);
+    const { entries } = response.json<{ entries: { action: string; actorType: string; actorId: string | null; detail?: unknown }[] }>();
+    expect(entries[0]).toMatchObject({ action: 'request.received', actorType: 'user', actorId: DEMO_IDS.requester });
+    expect(entries.map((e) => e.action)).toContain('policy.decided');
+    expect(entries.every((e) => e.detail === undefined)).toBe(true);
+  });
+
+  it('404s an unknown request and 400s a bad id', async () => {
+    expect((await app.inject({ method: 'GET', url: '/purchases/00000000-0000-4000-8000-0000000000ff/audit' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/purchases/nope/audit' })).statusCode).toBe(400);
+  });
+});
+
 describe('PATCH /mandates/:id', () => {
   it('lets an admin change limits, replaces category limits, and audits the change', async () => {
     const response = await app.inject({

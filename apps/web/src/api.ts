@@ -78,6 +78,15 @@ export const PurchaseListItemSchema = z.object({
 });
 export type PurchaseListItem = z.infer<typeof PurchaseListItemSchema>;
 
+export const AuditEntrySchema = z.object({
+  at: z.string(),
+  actorType: z.string(),
+  actorId: z.string().nullable(),
+  action: z.string(),
+  policyVersion: z.string().nullable(),
+});
+export type AuditEntry = z.infer<typeof AuditEntrySchema>;
+
 export interface MandateChange {
   budgetMinor?: number;
   perItemCapMinor?: number;
@@ -154,6 +163,11 @@ export class MandateApi {
 
   getSummary(mandateId: string): Promise<Summary> {
     return this.#call(SummarySchema, `/mandates/${mandateId}/summary`);
+  }
+
+  async getAudit(purchaseId: string): Promise<AuditEntry[]> {
+    const { entries } = await this.#call(z.object({ entries: z.array(AuditEntrySchema) }), `/purchases/${purchaseId}/audit`);
+    return entries;
   }
 
   async listPurchases(mandateId: string, options: { status?: string; limit?: number } = {}): Promise<PurchaseListItem[]> {

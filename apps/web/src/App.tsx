@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { DEMO_PEOPLE } from './config';
 import { MandateScreen } from './screens/MandateScreen';
 import { PurchaseScreen } from './screens/PurchaseScreen';
@@ -11,6 +11,7 @@ export interface Route {
 
 export const ROUTES: Route[] = [
   { path: '#/request', label: 'New request' },
+  { path: '#/dashboard', label: 'Dashboard' },
   { path: '#/mandate', label: 'Mandate' },
 ];
 
@@ -23,6 +24,9 @@ export function resolvePath(hash: string): string {
 }
 
 const currentPath = () => resolvePath(window.location.hash);
+
+// The grid library is large; load it only when the dashboard is opened.
+const DashboardScreen = lazy(() => import('./screens/DashboardScreen').then((m) => ({ default: m.DashboardScreen })));
 
 export function App() {
   const [path, setPath] = useState(currentPath);
@@ -67,6 +71,11 @@ export function App() {
       </nav>
       <main className="page">
         {path === '#/request' && <RequestScreen requesterId={actorId} />}
+        {path === '#/dashboard' && (
+          <Suspense fallback={<p className="empty">Loading the dashboard.</p>}>
+            <DashboardScreen />
+          </Suspense>
+        )}
         {path === '#/mandate' && <MandateScreen actorId={actorId} />}
         {PURCHASE_ROUTE.test(path) && <PurchaseScreen purchaseId={PURCHASE_ROUTE.exec(path)?.[1] ?? ''} />}
       </main>
