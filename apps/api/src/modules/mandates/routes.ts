@@ -35,7 +35,8 @@ const ListQuerySchema = z.strictObject({
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
-const STATUS: Record<MandateErrorCode, number> = { MANDATE_NOT_FOUND: 404, ACTOR_NOT_ALLOWED: 403 };
+const STATUS: Record<MandateErrorCode, number> = { MANDATE_NOT_FOUND: 404, ACTOR_NOT_ALLOWED: 403, PURCHASE_NOT_FOUND: 404 };
+const PurchaseParamsSchema = z.strictObject({ purchaseId: z.uuid() });
 
 function sendMandateError(error: unknown, request: FastifyRequest, reply: FastifyReply): FastifyReply {
   if (!(error instanceof MandateError)) throw error;
@@ -77,6 +78,15 @@ export function mandateRoutes(service: MandateService) {
       const query = parseRequest(ListQuerySchema, request.query);
       try {
         return await reply.send({ items: await service.purchases(mandateId, query) });
+      } catch (error) {
+        return sendMandateError(error, request, reply);
+      }
+    });
+
+    app.get('/purchases/:purchaseId/audit', async (request, reply) => {
+      const { purchaseId } = parseRequest(PurchaseParamsSchema, request.params);
+      try {
+        return await reply.send({ entries: await service.audit(purchaseId) });
       } catch (error) {
         return sendMandateError(error, request, reply);
       }

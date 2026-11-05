@@ -30,7 +30,8 @@ TypeScript everywhere, pnpm workspaces monorepo. Fastify + Zod API as a **modula
 ```
 apps/web          React + Vite UI (pnpm dev:web, :5173): request screen with the decision slip; typed API client (Zod);
                   money as integer minor units (src/money.ts); #/mandate setup form (admin edits, src/mandateForm.ts);
-                  #/purchases/:id decision view
+                  #/purchases/:id decision view + audit trail; #/dashboard (budget meter, categories vs caps, approval
+                  queue, AG Grid Community request table, lazy-loaded)
 apps/api          Fastify API: health/ready, error handling, config; Postgres migrations (apps/api/migrations), budget reservations, seed
                   modules/purchases: request -> intent -> candidates -> proposal -> cart -> policy -> reservation -> PayPal order
                   (ports for the LLM/catalog in ports.ts); modules/payments: the only @mandate/payments import
