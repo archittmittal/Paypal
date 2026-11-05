@@ -33,6 +33,8 @@ const ApprovalDecisionSchema = z.strictObject({
   channel: z.enum(['email', 'slack', 'dashboard', 'zapier']).default('zapier'),
 });
 
+const ApprovalPreviewSchema = z.strictObject({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) });
+
 function sendPurchaseError(error: unknown, request: FastifyRequest, reply: FastifyReply): FastifyReply {
   if (!(error instanceof PurchaseError)) throw error;
   return reply.status(STATUS[error.code]).send({ error: error.code, message: 'Request rejected', requestId: request.id });
@@ -55,6 +57,15 @@ export function purchaseRoutes(service: PurchaseService) {
       const { purchaseId } = parseRequest(PurchaseParamsSchema, request.params);
       try {
         return await reply.send(await service.get(purchaseId));
+      } catch (error) {
+        return sendPurchaseError(error, request, reply);
+      }
+    });
+
+    app.post('/approvals/preview', async (request, reply) => {
+      const { token } = parseRequest(ApprovalPreviewSchema, request.body);
+      try {
+        return await reply.send(await service.previewApproval(token));
       } catch (error) {
         return sendPurchaseError(error, request, reply);
       }

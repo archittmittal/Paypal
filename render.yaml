@@ -26,6 +26,11 @@ services:
       # The web app's origin, e.g. https://mandate-web.onrender.com (comma-separate several). Unset: no CORS.
       - key: WEB_ORIGIN
         sync: false
+      # Approvals through Zapier (docs/zapier.md): the Catch Hook URL, and the web app URL for review links.
+      - key: ZAPIER_APPROVAL_WEBHOOK_URL
+        sync: false
+      - key: WEB_APP_URL
+        sync: false
       - key: LOG_LEVEL
         value: info
       - key: DATABASE_URL

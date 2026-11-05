@@ -87,6 +87,12 @@ export const AuditEntrySchema = z.object({
 });
 export type AuditEntry = z.infer<typeof AuditEntrySchema>;
 
+export const ApprovalPreviewSchema = z.object({
+  purchase: PurchaseViewSchema,
+  approval: z.object({ status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED']), expiresAt: z.string() }),
+});
+export type ApprovalPreview = z.infer<typeof ApprovalPreviewSchema>;
+
 export interface MandateChange {
   budgetMinor?: number;
   perItemCapMinor?: number;
@@ -163,6 +169,15 @@ export class MandateApi {
 
   getSummary(mandateId: string): Promise<Summary> {
     return this.#call(SummarySchema, `/mandates/${mandateId}/summary`);
+  }
+
+  /** What an approval link asks the approver to decide. The token goes in the body, never in a URL. */
+  previewApproval(token: string): Promise<ApprovalPreview> {
+    return this.#call(ApprovalPreviewSchema, '/approvals/preview', { method: 'POST', body: JSON.stringify({ token }) });
+  }
+
+  decideApproval(token: string, decision: 'APPROVE' | 'REJECT'): Promise<PurchaseView> {
+    return this.#call(PurchaseViewSchema, '/approvals/decision', { method: 'POST', body: JSON.stringify({ token, decision, channel: 'zapier' }) });
   }
 
   async getAudit(purchaseId: string): Promise<AuditEntry[]> {

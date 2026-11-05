@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 // Hard rule 7 applied to the deploy config: a secret in render.yaml would be committed to git.
 // Every secret-looking variable must be `sync: false` (entered in the Render dashboard) or come from the database.
 
-const SECRET_NAME = /(SECRET|PASSWORD|TOKEN|API_KEY|CLIENT_ID|DATABASE_URL)/;
+const SECRET_NAME = /(SECRET|PASSWORD|TOKEN|API_KEY|CLIENT_ID|DATABASE_URL|WEBHOOK_URL)/;
 
 export function envEntries(yaml: string): { key: string; body: string }[] {
   const lines = yaml.split(/\r?\n/);

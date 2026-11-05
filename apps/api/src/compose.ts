@@ -1,6 +1,7 @@
 import { AnthropicAdapter, LlmClient, LlmConfigError, LlmIntentParser, LlmRanker, loadLlmConfig, type Logger, type ProviderAdapter } from '@mandate/llm';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from './db/db.js';
+import { loadZapierConfig, ZapierApprovalNotifier, ZapierConfigError } from './modules/approvals/zapier.js';
 import { FixtureCatalog } from './modules/catalog/fixture.js';
 import { MandateService } from './modules/mandates/service.js';
 import { paypalGatewayFromEnv } from './modules/payments/gateway.js';
@@ -17,11 +18,13 @@ export interface ComposeOptions {
   llmAdapter?: ProviderAdapter;
   /** Tests inject a fake fetch for PayPal. */
   paypalFetch?: (url: string, init: RequestInit) => Promise<Response>;
+  /** Tests inject a fake fetch for the Zapier webhook. */
+  zapierFetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 /** A feature that is off, and the variable names (never values) that would turn it on. */
 export interface Disabled {
-  feature: 'purchases' | 'paypal-webhooks';
+  feature: 'purchases' | 'paypal-webhooks' | 'approval-notifications';
   missing: readonly string[];
 }
 
@@ -80,13 +83,26 @@ export function compose(options: ComposeOptions): Composition {
     };
   }
 
+  // Approval messages are optional: without them, approvals wait for the expiry sweep.
+  const disabled: Disabled[] = [];
+  let approvalNotifier: ZapierApprovalNotifier | undefined;
+  try {
+    const zapier = loadZapierConfig(env);
+    if (zapier) approvalNotifier = new ZapierApprovalNotifier(zapier, options.zapierFetch);
+    else disabled.push({ feature: 'approval-notifications', missing: ['ZAPIER_APPROVAL_WEBHOOK_URL', 'WEB_APP_URL'] });
+  } catch (error) {
+    if (!(error instanceof ZapierConfigError)) throw error;
+    disabled.push({ feature: 'approval-notifications', missing: error.variables });
+  }
+
   const purchases = new PurchaseService({
     db,
     intentParser: new LlmIntentParser(client),
     catalog: new FixtureCatalog({ onDropped: (count) => log.warn({ count }, 'catalog.dropped') }),
     ranker: new LlmRanker(client),
     payments: paypal.gateway,
+    ...(approvalNotifier ? { approvalNotifier } : {}),
   });
-  if (!paypal.webhooksEnabled) return { ...mandates, purchases, disabled: [{ feature: 'paypal-webhooks', missing: ['PAYPAL_WEBHOOK_ID'] }] };
-  return { ...mandates, purchases, paypalWebhooks: new PaypalWebhookHandler({ db, payments: paypal.gateway, purchases }), disabled: [] };
+  if (!paypal.webhooksEnabled) return { ...mandates, purchases, disabled: [...disabled, { feature: 'paypal-webhooks', missing: ['PAYPAL_WEBHOOK_ID'] }] };
+  return { ...mandates, purchases, paypalWebhooks: new PaypalWebhookHandler({ db, payments: paypal.gateway, purchases }), disabled };
 }

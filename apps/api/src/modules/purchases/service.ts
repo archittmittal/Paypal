@@ -547,6 +547,19 @@ export class PurchaseService {
   }
 
   /**
+   * What the approver is being asked to decide, for the review page. Read-only: it never changes the approval,
+   * so opening the link twice is harmless. The token travels in the request body, like the decision.
+   */
+  async previewApproval(token: string): Promise<{ purchase: PurchaseView; approval: { status: string; expiresAt: string } }> {
+    const found = await this.#approvalByHash(this.#deps.db, hashToken(token));
+    if (!found) throw new PurchaseError('APPROVAL_NOT_FOUND');
+    return {
+      purchase: await this.get(found.request_id),
+      approval: { status: found.status, expiresAt: new Date(found.expires_at).toISOString() },
+    };
+  }
+
+  /**
    * Applies the approver's decision. The token is the only credential: single use, stored as a hash,
    * checked against expiry server-side. An approval leads to payment only after a re-quote passes the
    * mandate's price-drift tolerance, so the approved amount is the paid amount (failure mode 3).
