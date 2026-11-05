@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DEMO_PEOPLE } from './config';
+import { MandateScreen } from './screens/MandateScreen';
+import { PurchaseScreen } from './screens/PurchaseScreen';
 import { RequestScreen } from './screens/RequestScreen';
 
 export interface Route {
@@ -7,11 +9,20 @@ export interface Route {
   label: string;
 }
 
-export const ROUTES: Route[] = [{ path: '#/request', label: 'New request' }];
+export const ROUTES: Route[] = [
+  { path: '#/request', label: 'New request' },
+  { path: '#/mandate', label: 'Mandate' },
+];
 
-function currentPath(): string {
-  return ROUTES.some((route) => route.path === window.location.hash) ? window.location.hash : '#/request';
+const PURCHASE_ROUTE = /^#\/purchases\/([0-9a-f-]{36})$/;
+
+/** Hash routes keep the static build host-agnostic: no server rewrites needed. */
+export function resolvePath(hash: string): string {
+  if (ROUTES.some((route) => route.path === hash) || PURCHASE_ROUTE.test(hash)) return hash;
+  return '#/request';
 }
+
+const currentPath = () => resolvePath(window.location.hash);
 
 export function App() {
   const [path, setPath] = useState(currentPath);
@@ -54,7 +65,11 @@ export function App() {
           <span className="fine">Demo people. Sign-in comes later.</span>
         </label>
       </nav>
-      <main className="page">{path === '#/request' && <RequestScreen requesterId={actorId} />}</main>
+      <main className="page">
+        {path === '#/request' && <RequestScreen requesterId={actorId} />}
+        {path === '#/mandate' && <MandateScreen actorId={actorId} />}
+        {PURCHASE_ROUTE.test(path) && <PurchaseScreen purchaseId={PURCHASE_ROUTE.exec(path)?.[1] ?? ''} />}
+      </main>
     </div>
   );
 }

@@ -501,3 +501,140 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* Mandate setup: a form with plain fieldsets; the slip styling stays reserved for decisions. */
+
+.mandate {
+  max-width: 62rem;
+}
+
+.mandate__head {
+  margin-bottom: 1.5rem;
+}
+
+.notice {
+  border-left: 3px solid var(--review);
+  padding: 0.4rem 0 0.4rem 0.9rem;
+  max-width: 60ch;
+}
+
+.notice--ok {
+  border-color: var(--allow);
+}
+
+fieldset {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0 0 1.5rem;
+  padding: 1.25rem 0 0;
+  min-width: 0;
+}
+
+legend {
+  font-weight: 600;
+  font-size: var(--step-1);
+  padding: 0 0.5rem 0 0;
+}
+
+.grid-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.3rem;
+  align-content: start;
+}
+
+.field label {
+  font-weight: 500;
+}
+
+.field p {
+  margin: 0;
+}
+
+.field__error {
+  color: var(--deny);
+  font-size: var(--step--1);
+  margin: 0.25rem 0 0;
+}
+
+.money-input {
+  display: flex;
+  align-items: stretch;
+}
+
+.money-input span {
+  display: grid;
+  place-items: center;
+  padding: 0 0.6rem;
+  border: 1px solid var(--rule);
+  border-right: 0;
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+  color: var(--ink-soft);
+  font-size: var(--step--1);
+}
+
+.money-input input {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  text-align: right;
+}
+
+[aria-invalid='true'] {
+  border-color: var(--deny);
+}
+
+.categories {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+}
+
+.categories th {
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+  padding: 0 0.75rem 0.4rem 0;
+}
+
+.categories td {
+  padding: 0.3rem 0.75rem 0.3rem 0;
+  vertical-align: top;
+}
+
+.categories input[type='checkbox'] {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: 0.6rem;
+  accent-color: var(--accent);
+}
+
+fieldset:disabled input,
+fieldset:disabled select {
+  background: transparent;
+}
+
+.narrow {
+  max-width: 44rem;
+}
+
+@media (max-width: 900px) {
+  .actor {
+    flex: 1 1 100%;
+    margin: 0;
+    min-width: 0;
+  }
+
+  .categories {
+    display: block;
+    overflow-x: auto;
+  }
+
+  .categories input:not([type='checkbox']) {
+    min-width: 8rem;
+  }
+}
