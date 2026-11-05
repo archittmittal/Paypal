@@ -9,6 +9,12 @@ const ApiEnvSchema = z.object({
   LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   // Optional until the routes that need Postgres land; the API starts without it. Contains a password.
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\/\S+$/).optional(),
+  // Comma-separated browser origins allowed to call the API (the web app). Unset: no cross-origin access.
+  WEB_ORIGIN: z
+    .string()
+    .transform((value) => value.split(',').map((origin) => origin.trim()).filter(Boolean))
+    .pipe(z.array(z.url({ protocol: /^https?$/ }).refine((url) => new URL(url).origin === url, 'Must be a bare origin')).min(1))
+    .optional(),
 });
 
 export interface ApiConfig {
@@ -16,6 +22,7 @@ export interface ApiConfig {
   host: string;
   logLevel: (typeof LOG_LEVELS)[number];
   databaseUrl?: string;
+  webOrigins?: string[];
 }
 
 /** Names the invalid variables only. Values never appear in the message: some of them will be secrets. */
@@ -36,6 +43,12 @@ export function loadApiConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (!result.success) {
     throw new ApiConfigError([...new Set(result.error.issues.map((issue) => String(issue.path[0])))]);
   }
-  const { PORT, HOST, LOG_LEVEL, DATABASE_URL } = result.data;
-  return { port: PORT, host: HOST, logLevel: LOG_LEVEL, ...(DATABASE_URL === undefined ? {} : { databaseUrl: DATABASE_URL }) };
+  const { PORT, HOST, LOG_LEVEL, DATABASE_URL, WEB_ORIGIN } = result.data;
+  return {
+    port: PORT,
+    host: HOST,
+    logLevel: LOG_LEVEL,
+    ...(DATABASE_URL === undefined ? {} : { databaseUrl: DATABASE_URL }),
+    ...(WEB_ORIGIN === undefined ? {} : { webOrigins: WEB_ORIGIN }),
+  };
 }

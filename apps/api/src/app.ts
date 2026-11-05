@@ -1,24 +1,29 @@
 import { randomUUID } from 'node:crypto';
+import cors from '@fastify/cors';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 import type { ApiConfig } from './config.js';
 import { errorHandler, notFoundHandler } from './http/errors.js';
 import { healthRoutes, type ReadinessCheck } from './modules/health/routes.js';
+import { mandateRoutes } from './modules/mandates/routes.js';
+import type { MandateService } from './modules/mandates/service.js';
 import { purchaseRoutes } from './modules/purchases/routes.js';
 import type { PurchaseService } from './modules/purchases/service.js';
 import { paypalWebhookRoutes, type PaypalWebhookHandler } from './modules/webhooks/paypal.js';
 
 export interface AppOptions {
-  config: Pick<ApiConfig, 'logLevel'>;
+  config: Pick<ApiConfig, 'logLevel' | 'webOrigins'>;
   readinessChecks?: readonly ReadinessCheck[];
   /** Registered only when the database and every port (LLM, catalog, PayPal) are configured. */
   purchases?: PurchaseService;
+  /** Mandate setup and dashboard reads. Registered when the database is configured. */
+  mandates?: MandateService;
   /** Registered only when PAYPAL_WEBHOOK_ID is configured, so signatures can be verified. */
   paypalWebhooks?: PaypalWebhookHandler;
   /**
    * Builds the services with the app's own logger, for the server entry point. Its result is used when
    * `purchases` and `paypalWebhooks` are not passed directly.
    */
-  compose?: (log: FastifyBaseLogger) => { purchases?: PurchaseService; paypalWebhooks?: PaypalWebhookHandler };
+  compose?: (log: FastifyBaseLogger) => { purchases?: PurchaseService; paypalWebhooks?: PaypalWebhookHandler; mandates?: MandateService };
   /** Tests pass false to keep output quiet. */
   logger?: boolean;
 }
@@ -58,9 +63,16 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const composed = options.compose?.(app.log) ?? {};
   const purchases = options.purchases ?? composed.purchases;
   const paypalWebhooks = options.paypalWebhooks ?? composed.paypalWebhooks;
+  const mandates = options.mandates ?? composed.mandates;
+
+  // Only the configured web origins may call the API from a browser. No credentials: there are no cookies.
+  if (options.config.webOrigins) {
+    await app.register(cors, { origin: options.config.webOrigins, methods: ['GET', 'POST', 'PATCH'], credentials: false, maxAge: 600 });
+  }
 
   await app.register(healthRoutes(options.readinessChecks ?? []));
   if (purchases) await app.register(purchaseRoutes(purchases));
+  if (mandates) await app.register(mandateRoutes(mandates));
   if (paypalWebhooks) await app.register(paypalWebhookRoutes(paypalWebhooks));
   return app;
 }
