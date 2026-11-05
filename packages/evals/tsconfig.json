@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  // Runs on Node type stripping (pnpm eval) and imports apps/api source, which needs erasable syntax only.
+  "compilerOptions": { "erasableSyntaxOnly": true },
+  "include": ["src", "test"]
+}

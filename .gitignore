@@ -16,6 +16,8 @@ build/
 .vite/
 
 # Test and coverage output
+# Fake-mode eval runs test the harness only; they are never results.
+packages/evals/results/fake/
 coverage/
 playwright-report/
 test-results/

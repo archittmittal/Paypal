@@ -1,0 +1,19 @@
+{
+  "name": "@mandate/evals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "eval": "node --env-file-if-exists=../../.env --import ../../apps/api/scripts/resolve-ts.ts src/cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.3.0",
+    "@electric-sql/pglite": "0.5.12",
+    "@mandate/api": "workspace:*",
+    "@mandate/llm": "workspace:*",
+    "@mandate/policy": "workspace:*",
+    "@mandate/shared": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
