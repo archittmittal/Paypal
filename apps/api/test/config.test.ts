@@ -28,6 +28,15 @@ describe('loadApiConfig', () => {
     expect(() => loadApiConfig({ DATABASE_URL: 'mysql://db.example.invalid/LEAK-MARKER' })).not.toThrow(/LEAK-MARKER/);
   });
 
+  it('reads WEB_ORIGIN as a list of bare origins', () => {
+    expect(loadApiConfig({ WEB_ORIGIN: 'https://web.example, http://localhost:5173' }).webOrigins).toEqual(['https://web.example', 'http://localhost:5173']);
+    expect(loadApiConfig({}).webOrigins).toBeUndefined();
+  });
+
+  it.each([['a path', 'https://web.example/app'], ['a non-http scheme', 'ftp://web.example'], ['only commas', ' , ']])('rejects WEB_ORIGIN with %s', (_label, value) => {
+    expect(() => loadApiConfig({ WEB_ORIGIN: value })).toThrow('WEB_ORIGIN');
+  });
+
   it('ignores unrelated variables', () => {
     expect(loadApiConfig({ PAYPAL_CLIENT_SECRET: 'x', PATH: '/usr/bin' }).port).toBe(3000);
   });

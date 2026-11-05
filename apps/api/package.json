@@ -14,6 +14,7 @@
     "db:seed": "node --env-file-if-exists=../../.env --import ./scripts/resolve-ts.ts scripts/db.ts seed"
   },
   "dependencies": {
+    "@fastify/cors": "11.3.1",
     "@mandate/llm": "workspace:*",
     "@mandate/payments": "workspace:*",
     "@mandate/policy": "workspace:*",

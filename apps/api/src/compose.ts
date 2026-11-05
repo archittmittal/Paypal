@@ -2,6 +2,7 @@ import { AnthropicAdapter, LlmClient, LlmConfigError, LlmIntentParser, LlmRanker
 import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from './db/db.js';
 import { FixtureCatalog } from './modules/catalog/fixture.js';
+import { MandateService } from './modules/mandates/service.js';
 import { paypalGatewayFromEnv } from './modules/payments/gateway.js';
 import { PurchaseService } from './modules/purchases/service.js';
 import { PaypalWebhookHandler } from './modules/webhooks/paypal.js';
@@ -25,6 +26,8 @@ export interface Disabled {
 }
 
 export interface Composition {
+  /** Needs only the database. */
+  mandates?: MandateService;
   purchases?: PurchaseService;
   paypalWebhooks?: PaypalWebhookHandler;
   disabled: Disabled[];
@@ -66,8 +69,10 @@ export function compose(options: ComposeOptions): Composition {
   const paypal = paypalGatewayFromEnv(env, options.paypalFetch);
   if (!paypal.ok) missing.push(...paypal.variables);
 
+  const mandates = db ? { mandates: new MandateService(db) } : {};
   if (!db || !client || !paypal.ok) {
     return {
+      ...mandates,
       disabled: [
         { feature: 'purchases', missing },
         { feature: 'paypal-webhooks', missing: [...missing, 'PAYPAL_WEBHOOK_ID'] },
@@ -82,6 +87,6 @@ export function compose(options: ComposeOptions): Composition {
     ranker: new LlmRanker(client),
     payments: paypal.gateway,
   });
-  if (!paypal.webhooksEnabled) return { purchases, disabled: [{ feature: 'paypal-webhooks', missing: ['PAYPAL_WEBHOOK_ID'] }] };
-  return { purchases, paypalWebhooks: new PaypalWebhookHandler({ db, payments: paypal.gateway, purchases }), disabled: [] };
+  if (!paypal.webhooksEnabled) return { ...mandates, purchases, disabled: [{ feature: 'paypal-webhooks', missing: ['PAYPAL_WEBHOOK_ID'] }] };
+  return { ...mandates, purchases, paypalWebhooks: new PaypalWebhookHandler({ db, payments: paypal.gateway, purchases }), disabled: [] };
 }

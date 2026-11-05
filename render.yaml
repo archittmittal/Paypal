@@ -23,6 +23,9 @@ services:
       # Render routes traffic to 0.0.0.0:$PORT; the API defaults to loopback otherwise.
       - key: HOST
         value: 0.0.0.0
+      # The web app's origin, e.g. https://mandate-web.onrender.com (comma-separate several). Unset: no CORS.
+      - key: WEB_ORIGIN
+        sync: false
       - key: LOG_LEVEL
         value: info
       - key: DATABASE_URL
