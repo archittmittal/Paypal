@@ -42,14 +42,15 @@ packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPric
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
 packages/shared   Zod schemas, types, money utils
 packages/payments PayPal Orders v2 sandbox client (the ONLY PayPal caller) + Gate 1 spike script
-packages/evals    Scenarios, fakes (PayPal, Channel3), fixtures, runner, results/
+packages/evals    Harness: scenarios, configs (a) naive tool agent, (b) prompt-hardened, (c) real PurchaseService on PGlite;
+                  recording fake PayPal, oracle, runner, report; live results/ (fake runs git-ignored). See packages/evals/README.md
 docs/             architecture, uml, er-diagram, tech-stack, deploy (Render runbook), adr/
 render.yaml       Render Blueprint: API web service + Postgres (secrets are sync: false)
 ```
 
 ## Commands
 Real: `pnpm install` · `docker compose up -d` (Postgres) · `pnpm db:migrate` · `pnpm db:seed` · `pnpm dev` (API on :3000, watch mode) · `pnpm lint` · `pnpm typecheck` · `pnpm test` (Vitest + coverage) · `pnpm smoke:offline` (runs each package's offline smoke, CI) · `pnpm smoke:live` (packages that call a real provider; never CI) · `pnpm --filter @mandate/payments spike <cmd>` (real PayPal sandbox; see packages/payments/smoke/spike.ts).
-Planned: `pnpm eval` · Elasticsearch in compose (optional profile).
+`pnpm eval` (fake: harness only) · `pnpm eval --live` (real model; results/). Planned: Elasticsearch in compose (optional profile).
 
 ## Git workflow
 - `origin` = our **fork**. `upstream` = the main team repo. Branch from `upstream/main`.

@@ -122,7 +122,7 @@ apps/api          Fastify API, modules: intake, catalog,
 packages/policy   Pure TS policy engine, no I/O, no LLM      TBD
 packages/llm      Intent parsing + ranking, no tools         TBD
 packages/shared   Zod schemas, types, money utils            TBD
-packages/evals    Scenarios, fakes, fixtures, results/       TBD
+packages/evals    Scenarios, fakes, fixtures, results/       Harness built; suites in #20
 docs/             architecture, uml, er-diagram,
                   tech-stack, adr/                           exists
 ```
@@ -137,7 +137,7 @@ cp .env.example .env          # TBD: sandbox credentials, never committed
 docker compose up -d          # TBD: Postgres, Elasticsearch
 pnpm dev                      # TBD
 pnpm test && pnpm lint && pnpm typecheck
-pnpm eval                     # TBD: benign + attack suites
+pnpm eval                     # harness check with scripted replies; --live for real results
 ```
 
 Judges' sandbox credentials go in the Devpost testing instructions, never in this repo.
