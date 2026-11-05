@@ -6,6 +6,8 @@ Entry for the **PayPal AI Hackathon** (Devpost). Deadline **Nov 12, 2026, 12:00 
 
 > **Labels used in this README.** `VERIFY` = we have not confirmed this yet. `HYPOTHESIS` = a guess about users or business that interviews must test. `TBD` = does not exist yet. We do not state results we have not measured.
 
+**Status (Nov 5):** the backend, the AI layer, the policy engine, the web app and the eval harness are built and tested in CI. **Not yet done:** a deployed URL, a live PayPal sandbox payment, a live LLM run and the eval numbers. See [What works today](#what-works-today).
+
 **Docs:** [architecture](docs/architecture.md) · [UML](docs/uml.md) · [ER diagram](docs/er-diagram.md) · [tech stack](docs/tech-stack.md) · [ADRs](docs/adr/) · [idea proposal](docs/Idea-propose-Anubhav.md) · [research](docs/R&D.md)
 
 ---
@@ -28,10 +30,10 @@ The current choice is: don't let the agent pay, or give it your wallet and hope.
 
 1. **Set a mandate.** A treasurer defines a total budget, a per-item cap, allowed categories, the amount above which a human must approve, and who approves.
 2. **Ask in plain language.** A teammate writes *"We need 40 name tags and an HDMI cable by Saturday."*
-3. **The LLM proposes.** It parses intent and searches/ranks products via Channel3. It returns candidate IDs and quantities only — never prices, never totals.
+3. **The LLM proposes.** It parses intent and ranks products from the catalog. It returns candidate IDs and quantities only — never prices, never totals. (Today the catalog is an offline fixture; Channel3 is `VERIFY`.)
 4. **Code decides.** A deterministic policy engine (pure TypeScript, no LLM, no I/O) recomputes every price from normalized catalog data and returns `ALLOW`, `NEEDS_APPROVAL` or `DENY` with machine-readable reasons.
 5. **Pay or escalate.** `ALLOW` goes to PayPal sandbox through the `payments` module. `NEEDS_APPROVAL` goes to a human via Zapier (Slack/email) and resumes only on a recorded approval. `DENY` stops, with the reason stored.
-6. **Everything is audited.** Spend, pending approvals, and every blocked attempt with its reason appear on an AG Studio dashboard, backed by an append-only audit log.
+6. **Everything is audited.** Spend, pending approvals, and every blocked attempt with its reason appear on a dashboard (AG Grid), backed by an append-only audit log.
 
 **Core design rule: the LLM proposes, code decides.** LLM modules never hold payment tools or credentials.
 
@@ -82,11 +84,10 @@ flowchart LR
   T["Treasurer / approver"] --> WEB
   WEB --> API["Mandate API: modular monolith"]
   API --> LLM["LLM provider, no tools"]
-  API --> C3["Channel3 catalog"]
+  API --> C3["Catalog: offline fixture today, Channel3 VERIFY"]
   API --> PP["PayPal sandbox"]
   API --> ZAP["Zapier approvals"]
   API --> PG[("Postgres, source of truth")]
-  API --> ES[("Elasticsearch, audit mirror")]
   PP -. webhooks .-> API
 ```
 
@@ -105,44 +106,95 @@ Full table with alternatives and risks: **[docs/tech-stack.md](docs/tech-stack.m
 |---|---|
 | Language / repo | TypeScript, pnpm workspaces monorepo, Node LTS |
 | API | Fastify + Zod, modular monolith |
-| Data | Postgres (source of truth) with Drizzle; Elasticsearch mirrors the audit log for search only |
-| Frontend | React + Vite, AG Studio dashboard |
-| LLM | Provider-agnostic wrapper, schema-validated structured output |
-| Tests / CI | Vitest, one Playwright e2e, GitHub Actions (lint, typecheck, test) |
+| Data | Postgres (source of truth), plain SQL migrations with checksums; PGlite (Postgres in WebAssembly) in tests. An Elasticsearch audit mirror is planned, not built |
+| Frontend | React + Vite, AG Grid Community for the requests table |
+| LLM | Anthropic Claude through `@anthropic-ai/sdk`, no tools, native structured output validated by Zod |
+| Tests / CI | Vitest with coverage floors; GitHub Actions: lint, typecheck, test, CodeQL, secret scan, dependency review |
 | Ops | pino structured logs, Docker Compose locally, Render in production |
 
 ## Repo structure
 
-Planned layout. Only `docs/` exists today.
-
 ```text
-apps/web          React UI + AG Studio dashboard             TBD
-apps/api          Fastify API, modules: intake, catalog,
-                  payments, approvals, audit, webhooks       TBD
-packages/policy   Pure TS policy engine, no I/O, no LLM      TBD
-packages/llm      Intent parsing + ranking, no tools         TBD
-packages/shared   Zod schemas, types, money utils            TBD
-packages/evals    Scenarios, fakes, fixtures, results/       Harness built; suites in #20
-docs/             architecture, uml, er-diagram,
-                  tech-stack, adr/                           exists
+apps/api          Fastify API: purchases (request -> intent -> catalog -> proposal -> cart -> policy -> PayPal),
+                  approvals (single-use links, Zapier), mandates (setup, dashboard reads), webhooks, jobs
+apps/web          React + Vite: request screen, decision slip, mandate setup, dashboard, approval page
+packages/policy   Pure TypeScript policy engine: no I/O, no LLM; unit and property tests
+packages/llm      Intent parser and ranker: no tools, schema-validated, quarantined text
+packages/shared   Zod schemas, money in integer minor units, untrusted-text quarantine
+packages/payments PayPal Orders v2 sandbox client: the only code that calls PayPal
+packages/evals    The three-configuration benchmark: scenarios, oracle, runner, results/
+postman/          Postman collection for the API
+docs/             architecture, UML, ER diagram, tech stack, ADRs, deploy runbook, Zapier setup
 ```
 
 ## Getting started
 
-**TBD — the scaffold does not exist yet.** This section becomes real at Gate 3 (Nov 6), when the goal is that a stranger can run the project from this README alone. The intended shape:
+You need **Node 22.12+** (24 recommended), **pnpm 11** (`corepack enable` installs the pinned version) and **Docker** for Postgres.
 
 ```bash
+git clone https://github.com/PxA-Labs/Paypal.git mandate && cd mandate
+corepack enable
 pnpm install
-cp .env.example .env          # TBD: sandbox credentials, never committed
-docker compose up -d          # TBD: Postgres, Elasticsearch
-pnpm dev                      # TBD
-pnpm test && pnpm lint && pnpm typecheck
-pnpm eval                     # harness check with scripted replies; --live for real results
+cp .env.example .env          # fill in the keys below; .env is git-ignored
+docker compose up -d          # Postgres 17 on 127.0.0.1:5432
+pnpm db:migrate               # creates the schema
+pnpm db:seed                  # a demo club, three demo people and one USD mandate
+pnpm dev                      # API on http://127.0.0.1:3000 (watch mode)
+pnpm dev:web                  # web app on http://localhost:5173 (second terminal)
 ```
 
-Judges' sandbox credentials go in the Devpost testing instructions, never in this repo.
+Open http://localhost:5173. The person picker in the corner stands in for sign-in: Riya requests, Arjun approves, Meera (admin) edits the mandate.
 
----
+**Keys in `.env`.** The API starts without them, and its log names any missing variable (names only, never values):
+
+| Feature | Needs |
+|---|---|
+| Health, mandate setup, dashboard | `DATABASE_URL` (already set for Docker in `.env.example`) |
+| Purchase requests | `ANTHROPIC_API_KEY`, plus `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` from a **sandbox** app at developer.paypal.com |
+| Browser access to the API | `WEB_ORIGIN=http://localhost:5173` (already in `.env.example`) |
+| Approval messages | `ZAPIER_APPROVAL_WEBHOOK_URL` and `WEB_APP_URL` ([docs/zapier.md](docs/zapier.md)) |
+| PayPal webhooks | `PAYPAL_WEBHOOK_ID` ([docs/deploy.md](docs/deploy.md)) |
+
+**Checks and tools**
+
+```bash
+pnpm test && pnpm lint && pnpm typecheck   # what CI runs
+pnpm eval                                  # benchmark harness with scripted replies (tests the harness, not results)
+pnpm eval --live                           # the real benchmark; needs ANTHROPIC_API_KEY
+```
+
+**Try it without the UI:** import [postman/mandate.postman_collection.json](postman/mandate.postman_collection.json) into Postman, set `baseUrl`, and run the folder in order.
+
+**Deploy:** `render.yaml` describes the API, the web app and Postgres; the runbook is [docs/deploy.md](docs/deploy.md). Judges' sandbox credentials go in the Devpost testing instructions, never in this repo.
+
+## What works today
+
+| Area | State |
+|---|---|
+| Policy engine: budget, per-line cap, categories and caps, approval threshold, quantity, split-purchase detection, price drift | Built; unit and property tests |
+| Purchase flow with budget reservations, idempotency keys and an order state machine | Built; integration tests on real Postgres in CI |
+| LLM intent parser and ranker (no tools; fabricated ids and inflated quantities refused) | Built; tested with a fake model. **Not yet run live** (`VERIFY`) |
+| Catalog | **Offline fixture** with deliberately poisoned listings. Channel3 not integrated (`VERIFY`) |
+| PayPal: create order, capture, read order, webhook signature check, reconciliation | Built against the Orders v2 sandbox API; tested with fakes. **No live sandbox payment recorded yet** (#9) |
+| Approvals: single-use links, Zapier message, review page | Built; the Zap itself still has to be created ([docs/zapier.md](docs/zapier.md)) |
+| Web app: request, decision with every reason, mandate setup, dashboard, audit trail | Built; not yet deployed |
+| Benchmark: 31 benign requests, 26 attacks in 13 categories, half held out | Harness and suites built; **no live results yet**, so this README reports none |
+| Deployment | `render.yaml` written; **not deployed yet** (#14) |
+
+## Tools used and how
+
+Only what the code does today. Planned work is marked as such.
+
+| Tool | How Mandate uses it | Status |
+|---|---|---|
+| **PayPal** (REST Orders v2, sandbox) | `packages/payments` creates orders with `PayPal-Request-Id` idempotency keys, captures them for the exact approved amount, reads orders to reconcile unknown outcomes, and verifies webhook signatures. Only that package may call PayPal | Built; live sandbox run pending (#9). Agent Toolkit / MCP not used |
+| **Anthropic Claude** (`@anthropic-ai/sdk`) | Intent parsing and ranking with native structured output and no tools; the naive and hardened eval baselines use tool calls, only inside `packages/evals` | Built; live run pending (#21) |
+| **AG Grid Community** | The dashboard's requests table: filters, sorting, keyboard navigation | Built. "AG Studio" not used |
+| **Zapier** | Webhooks by Zapier Catch Hook receives approval requests and messages the approver | API side built; Zap to be created |
+| **Render** | Blueprint for the API, the static web app and Postgres | Written; not deployed |
+| **Postman** | Collection covering every API endpoint, in `postman/` | Built |
+| **Channel3** | Planned product search | Not integrated |
+| **Elastic, APIMatic** | Planned | Not used |
 
 ## Team and roles
 
@@ -187,9 +239,9 @@ Each sponsor must do real work in the product, not appear in a logo strip.
 
 | Sponsor | Depth | Prize angle |
 |---|---|---|
-| **PayPal** (Agent Toolkit / MCP) | Core — orders, tracking, refunds, disputes, webhooks. Stage 1 depends on it | Best Use of PayPal + AI; Agentic Commerce |
+| **PayPal** (REST Orders v2) | Core — orders, capture, reconciliation, webhooks. Refunds and disputes are not built. Stage 1 depends on it | Best Use of PayPal + AI; Agentic Commerce |
 | **Channel3** | Core — product search and price data; the source of normalized catalog prices | Channel3 sponsor prize |
-| **AG Grid (AG Studio)** | Core — spend, approvals and blocked-attempt dashboard; custom widgets | AG Grid sponsor prize |
+| **AG Grid** | Core — the dashboard's requests table (Community edition) | AG Grid sponsor prize |
 | **Render** | Core — web service, static site, Postgres, durable background handling | Render sponsor prize |
 | **APIMatic** | Supporting — Context Plugin used while building the PayPal integration, documented | APIMatic sponsor prize |
 | **Zapier** | Supporting — approval requests and notifications to the approver | Supports Design and Impact |
@@ -257,9 +309,9 @@ Open questions. None of these may be stated as fact until tested.
 | 2 | Do PayPal's remote MCP commerce tools (gift cards only today) work in sandbox? | Backend lead `@TBD` |
 | 3 | Exact PayPal webhook event names and ordering guarantees | Payments/policy `@TBD` |
 | 4 | Whether similar agent-spending controls already exist, before we claim novelty | Integrations/docs `@TBD` |
-| 5 | The exact PayPal idempotency request header name and its semantics | Backend lead `@TBD` |
+| 5 | PayPal's idempotency window for `PayPal-Request-Id` on the sandbox (the client sends it on every money-moving call) | Backend lead `@TBD` |
 | 6 | Render database plan limits (storage, connections, retention) against our needs | Backend lead `@TBD` |
-| 7 | The AG Studio boilerplate's React and build-tool versions and project layout, before scaffolding `apps/web` | Frontend `@TBD` |
+| 7 | What "AG Studio" requires for the AG Grid prize. `apps/web` uses AG Grid Community | Frontend `@TBD` |
 | 8 | How sponsors handle trials that expire before judging ends Dec 15 | Integrations/docs `@TBD` |
 | 9 | Whether PayPal checkout screens count as third-party trademarks in the video | Integrations/docs `@TBD` |
 
