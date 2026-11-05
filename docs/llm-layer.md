@@ -292,7 +292,7 @@ The Phase 5 naive baseline needs tools. It belongs in `packages/evals` with its 
 
 | Phase | Uses |
 |---|---|
-| 2: Channel3 client | `CandidateSchema` (quarantine on parse), `MoneySchema`, opaque `cand_…` ids, the ER mapping in §3 |
+| 2: catalog | **Built (fixture):** `apps/api/src/modules/catalog` normalizes provider products through `CandidateSchema`, with opaque `cand_` ids, category slugs, and drop-and-count. `FixtureCatalog` serves the demo and evals. The Channel3 adapter is `VERIFY` (#16) |
 | 3: intent parser | **Built:** `LlmIntentParser` in `src/intent.ts` (`LlmClient.generateStructured` + `PurchaseIntentSchema`). The request is an **untrusted** part (§16) |
 | 4: ranker | **Built:** `LlmRanker` in `src/ranker.ts` (§17). `apps/api` `buildCart` resolves `candidateId` to a snapshot and recomputes prices in code |
 | 5: evals | `FakeProvider` with fault injection; a tools-enabled naive adapter kept in `packages/evals` |

@@ -34,6 +34,8 @@ apps/api          Fastify API: health/ready, error handling, config; Postgres mi
                   (ports for the LLM/catalog in ports.ts); modules/payments: the only @mandate/payments import
                   approvals: single-use hashed tokens, approve/reject, re-quote + price drift, expiry sweep
                   reconcile(): settles orders from PayPal's getOrder; webhooks/paypal.ts: verify -> dedupe -> reconcile
+                  modules/catalog: RawProduct -> CandidateSchema normalization (drop + count), FixtureCatalog (offline, has
+                  injected listings for evals); Channel3 adapter pending VERIFY
                   (modules to come: audit views)
 packages/policy   Pure TS policy engine (no I/O, no LLM): evaluate() + checkPriceDrift(), unit + property tests
 packages/llm      Intent parsing + ranking (no tools, schema-validated)
