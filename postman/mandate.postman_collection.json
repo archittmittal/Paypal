@@ -1,0 +1,524 @@
+{
+  "info": {
+    "name": "Mandate API (sandbox)",
+    "description": "Spending guardrails for AI agents. Run against a local API (pnpm dev) or a deployed one: set baseUrl.\n\nSandbox only. There is no sign-in yet: requests name the acting person, and the API checks their organization and role. The ids below are the seeded demo data (pnpm db:seed). No secrets belong in this collection: PayPal and LLM keys live in the API environment, never here.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "mandateId",
+      "value": "00000000-0000-4000-8000-000000000021"
+    },
+    {
+      "key": "requesterId",
+      "value": "00000000-0000-4000-8000-000000000011"
+    },
+    {
+      "key": "adminId",
+      "value": "00000000-0000-4000-8000-000000000013"
+    },
+    {
+      "key": "purchaseId",
+      "value": ""
+    },
+    {
+      "key": "approvalToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "The process is up."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "ready"
+              ]
+            },
+            "description": "Every dependency (Postgres) answered in time."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 503', () => pm.expect([200, 503]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Mandate",
+      "item": [
+        {
+          "name": "Get mandate",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}"
+              ]
+            },
+            "description": "Limits, category rules and the approver."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update mandate (admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}"
+              ]
+            },
+            "description": "Admin only, audited. Amounts are integer minor units (30000 = 300.00 USD). categoryLimits, when sent, replaces the whole list.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actorUserId\": \"{{adminId}}\",\n  \"approvalThresholdMinor\": 30000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}",
+                "summary"
+              ]
+            },
+            "description": "Committed and held spend by category, statuses, pending approvals, blocked attempts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Purchases",
+      "item": [
+        {
+          "name": "Request a purchase",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}/purchases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}",
+                "purchases"
+              ]
+            },
+            "description": "Plain-language request. The agent parses it and ranks catalog products; code prices the cart; the policy engine decides. requestKey is the idempotency key: resending the same key returns the first result. Needs ANTHROPIC_API_KEY and PayPal sandbox keys on the API.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requesterUserId\": \"{{requesterId}}\",\n  \"text\": \"Two sets of whiteboard markers for the club room.\",\n  \"requestKey\": \"postman-{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+                  "const body = pm.response.json();",
+                  "if (body.id) pm.collectionVariables.set('purchaseId', body.id);",
+                  "pm.test('has a status', () => pm.expect(body.status).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Request a blocked purchase (gift card)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}/purchases",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}",
+                "purchases"
+              ]
+            },
+            "description": "Gift cards are not an allowed category in the demo mandate: expect DENIED with CATEGORY_NOT_ALLOWED and no PayPal call.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requesterUserId\": \"{{requesterId}}\",\n  \"text\": \"Buy one 100 USD digital gift card for the raffle.\",\n  \"requestKey\": \"postman-{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 201', () => pm.expect([200, 201]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get purchase",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/purchases/{{purchaseId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "purchases",
+                "{{purchaseId}}"
+              ]
+            },
+            "description": "The cart, the decision with every reason, and the PayPal order."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Audit trail",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/purchases/{{purchaseId}}/audit",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "purchases",
+                "{{purchaseId}}",
+                "audit"
+              ]
+            },
+            "description": "Who did what and when (no detail payloads)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Capture payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/purchases/{{purchaseId}}/capture",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "purchases",
+                "{{purchaseId}}",
+                "capture"
+              ]
+            },
+            "description": "After the payer approves on PayPal (the approveUrl in the purchase), capture for the exact approved amount.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 409', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List purchases",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/mandates/{{mandateId}}/purchases?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mandates",
+                "{{mandateId}}",
+                "purchases?limit=20"
+              ]
+            },
+            "description": "Newest first, with decisions and reason codes. Add status=DENIED to see blocked attempts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200', () => pm.expect([200]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Approvals",
+      "description": "approvalToken comes from the review link in the Zapier message (the part after #/approve/). It is single use.",
+      "item": [
+        {
+          "name": "Preview approval",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/approvals/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "approvals",
+                "preview"
+              ]
+            },
+            "description": "What the approver is asked to decide. Read-only.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{approvalToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 404', () => pm.expect([200, 404]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Decide approval",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/approvals/decision",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "approvals",
+                "decision"
+              ]
+            },
+            "description": "APPROVE or REJECT. An approval re-quotes the price and checks drift before creating the PayPal order.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{approvalToken}}\",\n  \"decision\": \"REJECT\",\n  \"channel\": \"zapier\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is one of 200, 404, 409, 410', () => pm.expect([200, 404, 409, 410]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
