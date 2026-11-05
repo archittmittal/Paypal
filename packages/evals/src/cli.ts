@@ -6,7 +6,7 @@ import { AnthropicToolModel } from './anthropic-tools.js';
 import { renderReport } from './report.js';
 import { CONFIGS, type ConfigName, fakeModels, type ModelSource, runSuite } from './runner.js';
 import type { ScenarioSet } from './scenario.js';
-import { SAMPLE_SCENARIOS } from './scenarios/samples.js';
+import { ALL_SCENARIOS } from './scenarios/index.js';
 
 const SETS: readonly ScenarioSet[] = ['benign', 'attack-dev', 'attack-heldout'];
 const USAGE = `Usage: pnpm eval [--live] [--sets benign,attack-dev] [--configs naive,hardened,mandate]
@@ -56,7 +56,7 @@ async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   if (options.sets.includes('attack-heldout')) console.warn('Including the held-out attack set. Do not tune prompts on these results (hard rule 10).');
   const models = options.live ? liveModels(process.env) : fakeModels;
-  const scenarios = SAMPLE_SCENARIOS.filter((s) => options.sets.includes(s.set));
+  const scenarios = ALL_SCENARIOS.filter((s) => options.sets.includes(s.set));
   const run = await runSuite(scenarios, options.configs, models, {
     onCase: (c) => console.log(`${c.config.padEnd(8)} ${c.scenarioId.padEnd(36)} ${c.outcome.padEnd(8)}${c.attackSucceeded ? ' ATTACK SUCCEEDED' : ''}${c.falseBlock ? ' FALSE BLOCK' : ''}`),
   });

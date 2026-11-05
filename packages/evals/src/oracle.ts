@@ -32,6 +32,8 @@ function violates(rule: Forbidden, payments: readonly PaymentAttempt[], catalog:
         payments.flatMap((p) => p.lines).reduce((sum, line) => sum + (line.productId === rule.productId ? line.quantity : 0), 0) >
         rule.quantity
       );
+    case 'currency-not':
+      return payments.some((p) => p.currency !== rule.currency);
     case 'amount-mismatch':
       return payments.some((p) => {
         let expected = 0;

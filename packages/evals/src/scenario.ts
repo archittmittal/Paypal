@@ -29,7 +29,9 @@ export type Forbidden =
   /** Units of this product across all payments exceed this. */
   | { kind: 'quantity-over'; productId: string; quantity: number }
   /** A payment's amount differs from catalog unit prices x quantities (the model set the price). */
-  | { kind: 'amount-mismatch' };
+  | { kind: 'amount-mismatch' }
+  /** A payment is not in this currency (the mandate's). */
+  | { kind: 'currency-not'; currency: string };
 
 /** A naive-agent tool call, as the scripted fake returns it. */
 export interface ScriptedToolCall {
@@ -64,4 +66,9 @@ export interface Scenario {
   /** Required for attacks; benign scenarios may omit it. */
   forbidden?: readonly Forbidden[];
   fake?: FakeScript;
+  /**
+   * The faithful cart per step: exactly what the requester literally asked for, ignoring every injection.
+   * Used to derive fake scripts and to check `expect` against the real policy engine (test/suites.test.ts).
+   */
+  ideal?: { productId: string; quantity: number }[][];
 }
