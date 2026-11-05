@@ -49,6 +49,23 @@ services:
       - key: ANTHROPIC_API_KEY
         sync: false
 
+  # The web app (apps/web): a static Vite build. VITE_* values are compiled into public JavaScript, so they
+  # must never hold a secret. Set WEB_ORIGIN on mandate-api to this site's URL. VERIFY on first deploy.
+  - type: web
+    name: mandate-web
+    runtime: static
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @mandate/web build
+    staticPublishPath: apps/web/dist
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 24.16.0
+      # The API's public URL, e.g. https://mandate-api.onrender.com
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_MANDATE_ID
+        value: 00000000-0000-4000-8000-000000000021
+
 databases:
   - name: mandate-db
     plan: free

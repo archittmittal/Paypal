@@ -1,0 +1,503 @@
+/* Mandate: a spending authority on paper. Banknote-green ink on pale stock; the decision is the one stamped,
+   coloured mark on the page. Everything else stays quiet. */
+
+:root {
+  color-scheme: light;
+  --paper: #edf1ea;
+  --surface: #fbfcf8;
+  --ink: #17302c;
+  --ink-soft: #52645f;
+  --rule: #c7d2c9;
+  --accent: #123f3a;
+  --accent-ink: #f3f6f1;
+  --allow: #1f7a4d;
+  --review: #9a5d06;
+  --deny: #b3242d;
+  --focus: #2b6cb0;
+  --radius-control: 6px;
+  --radius-slip: 2px;
+  --font: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.75rem;
+  --step-3: 2.375rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --paper: #0f1b19;
+    --surface: #152523;
+    --ink: #e4ebe6;
+    --ink-soft: #a3b3ae;
+    --rule: #2b3d3a;
+    --accent: #8fc7b6;
+    --accent-ink: #0f1b19;
+    --allow: #5cc38f;
+    --review: #e2a54a;
+    --deny: #f0767d;
+    --focus: #8ab4f8;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #0f1b19;
+  --surface: #152523;
+  --ink: #e4ebe6;
+  --ink-soft: #a3b3ae;
+  --rule: #2b3d3a;
+  --accent: #8fc7b6;
+  --accent-ink: #0f1b19;
+  --allow: #5cc38f;
+  --review: #e2a54a;
+  --deny: #f0767d;
+  --focus: #8ab4f8;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--step-0);
+  line-height: 1.5;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.15;
+  margin: 0 0 0.5em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: var(--step-3);
+  letter-spacing: -0.025em;
+  max-width: 18ch;
+}
+
+h2 {
+  font-size: var(--step-2);
+}
+
+h3 {
+  font-size: var(--step-0);
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+p {
+  margin: 0 0 1em;
+}
+
+code {
+  font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace;
+  font-size: 0.875em;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.fine {
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.lede {
+  color: var(--ink-soft);
+  max-width: 52ch;
+}
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Shell: a quiet rail on the left, the work on the right. */
+
+.shell {
+  display: grid;
+  grid-template-columns: 15rem 1fr;
+  min-height: 100vh;
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.5rem 1.25rem;
+  border-right: 1px solid var(--rule);
+}
+
+.rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.rail ul a {
+  display: block;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.rail ul a:hover {
+  background: color-mix(in oklab, var(--accent) 8%, transparent);
+}
+
+.rail ul a[aria-current='page'] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: var(--step-1);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.brand svg {
+  width: 1.6rem;
+  height: 1.6rem;
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.actor {
+  margin-top: auto;
+  display: grid;
+  gap: 0.3rem;
+  font-size: var(--step--1);
+}
+
+.page {
+  padding: 2.5rem clamp(1rem, 4vw, 3.5rem) 4rem;
+  min-width: 0;
+}
+
+/* Controls */
+
+textarea,
+select,
+input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  padding: 0.6rem 0.75rem;
+  width: 100%;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 9rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.link {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0.2rem 0;
+  color: var(--accent);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-color: color-mix(in oklab, var(--accent) 40%, transparent);
+}
+
+/* Request screen: the ask on the left, the slip on the right. */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: start;
+}
+
+.examples {
+  margin-top: 2rem;
+}
+
+.examples li + li {
+  margin-top: 0.35rem;
+}
+
+.empty {
+  color: var(--ink-soft);
+  border: 1px dashed var(--rule);
+  border-radius: var(--radius-slip);
+  padding: 2.5rem 1.5rem;
+}
+
+.error {
+  color: var(--deny);
+  border-left: 3px solid var(--deny);
+  padding: 0.5rem 0 0.5rem 1rem;
+}
+
+/* The slip, and the stamp: the one loud element. */
+
+.slip {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-slip);
+  padding: 1.75rem 1.75rem 1.25rem;
+  box-shadow: 0 1px 0 var(--rule), 0 18px 30px -24px color-mix(in oklab, var(--ink) 45%, transparent);
+}
+
+.slip__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  min-height: 4.5rem;
+}
+
+.slip__status {
+  font-size: var(--step-1);
+  font-weight: 600;
+  max-width: 26ch;
+}
+
+.stamp {
+  --stamp: var(--ink);
+  flex: none;
+  margin: 0;
+  padding: 0.35rem 0.8rem;
+  border: 3px double var(--stamp);
+  border-radius: 4px;
+  color: var(--stamp);
+  font-weight: 700;
+  font-size: var(--step-1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: rotate(-7deg);
+  mix-blend-mode: multiply;
+  animation: stamp-down 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+
+@media (prefers-color-scheme: dark) {
+  .stamp {
+    mix-blend-mode: normal;
+  }
+}
+
+.stamp--allow {
+  --stamp: var(--allow);
+}
+
+.stamp--review {
+  --stamp: var(--review);
+}
+
+.stamp--deny {
+  --stamp: var(--deny);
+}
+
+@keyframes stamp-down {
+  from {
+    transform: rotate(-7deg) scale(1.6);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-7deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stamp {
+    animation: none;
+  }
+}
+
+.slip__section {
+  border-top: 1px solid var(--rule);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.lines {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lines th,
+.lines td {
+  text-align: left;
+  padding: 0.4rem 0.5rem 0.4rem 0;
+  vertical-align: top;
+}
+
+.lines thead th {
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.lines tfoot th,
+.lines tfoot td {
+  border-top: 1px solid var(--rule);
+  font-weight: 700;
+}
+
+.lines .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.lines__title {
+  display: block;
+}
+
+.lines__category {
+  font-size: var(--step--1);
+  color: var(--ink-soft);
+}
+
+.reasons {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reason {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--ink-soft);
+}
+
+.reason--block {
+  border-color: var(--deny);
+}
+
+.reason--review {
+  border-color: var(--review);
+}
+
+.reason--info {
+  border-color: var(--allow);
+}
+
+.reason__code {
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.slip__foot {
+  display: grid;
+  gap: 0.1rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--rule);
+}
+
+.slip__foot strong {
+  font-size: var(--step-2);
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    padding: 1rem;
+  }
+
+  .rail ul {
+    grid-auto-flow: column;
+  }
+
+  .actor {
+    margin: 0 0 0 auto;
+    min-width: 12rem;
+  }
+
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
