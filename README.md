@@ -308,7 +308,7 @@ Open questions. None of these may be stated as fact until tested.
 | 1 | Can the agent capture payments autonomously in sandbox (saved or vaulted payment method), or is payer approval always required? | Backend lead `@TBD` |
 | 2 | Do PayPal's remote MCP commerce tools (gift cards only today) work in sandbox? | Backend lead `@TBD` |
 | 3 | Exact PayPal webhook event names and ordering guarantees | Payments/policy `@TBD` |
-| 4 | Whether similar agent-spending controls already exist, before we claim novelty | Integrations/docs `@TBD` |
+| 4 | Whether similar agent-spending controls already exist, before we claim novelty. **First pass: yes, they exist** (Stripe, AP2, Ramp, Visa); do not claim novelty for the policy-engine idea. Mastercard and PayPal not yet read. See [docs/related-work.md](docs/related-work.md) | Integrations/docs `@TBD` |
 | 5 | PayPal's idempotency window for `PayPal-Request-Id` on the sandbox (the client sends it on every money-moving call) | Backend lead `@TBD` |
 | 6 | Render database plan limits (storage, connections, retention) against our needs | Backend lead `@TBD` |
 | 7 | What "AG Studio" requires for the AG Grid prize. `apps/web` uses AG Grid Community | Frontend `@TBD` |
