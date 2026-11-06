@@ -1,16 +1,44 @@
 # Mandate
 
-**Spending guardrails for AI agents.** A team sets the rules; an AI agent shops inside them; deterministic code — not the model — decides what gets paid for.
+[![CI](https://github.com/PxA-Labs/Paypal/actions/workflows/ci.yml/badge.svg)](https://github.com/PxA-Labs/Paypal/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Entry for the **PayPal AI Hackathon** (Devpost). Deadline **Nov 12, 2026, 12:00 PM PST**. Sandbox only; no real money moves.
+**Spending guardrails for AI agents.** A team sets the rules; an AI agent shops inside them; deterministic code, not the model, decides what gets paid for.
+
+Mandate is our entry for the **PayPal AI Hackathon** (Devpost, deadline **Nov 12, 2026, 12:00 PM PST**). It runs against the PayPal **sandbox** only; no real money moves.
 
 > **Labels used in this README.** `VERIFY` = we have not confirmed this yet. `HYPOTHESIS` = a guess about users or business that interviews must test. `TBD` = does not exist yet. We do not state results we have not measured.
 
-**Status (Nov 5):** the backend, the AI layer, the policy engine, the web app and the eval harness are built and tested in CI. **Not yet done:** a deployed URL, a live PayPal sandbox payment, a live LLM run and the eval numbers. See [What works today](#what-works-today).
+## Status (as of Nov 5)
 
-**Docs:** [architecture](docs/architecture.md) · [UML](docs/uml.md) · [ER diagram](docs/er-diagram.md) · [tech stack](docs/tech-stack.md) · [ADRs](docs/adr/) · [idea proposal](docs/Idea-propose-Anubhav.md) · [research](docs/R&D.md)
+| | |
+|---|---|
+| **Built and tested in CI** | Backend, AI layer, policy engine, web app, eval harness |
+| **Not yet done** | A deployed URL, a live PayPal sandbox payment, a live LLM run, and the eval numbers |
 
----
+Details: [What works today](#what-works-today).
+
+**Further reading:** [architecture](docs/architecture.md) · [UML](docs/uml.md) · [ER diagram](docs/er-diagram.md) · [tech stack](docs/tech-stack.md) · [ADRs](docs/adr/) · [Zapier setup](docs/zapier.md) · [deploy runbook](docs/deploy.md) · [idea proposal](docs/Idea-propose-Anubhav.md) · [research](docs/R&D.md)
+
+## Contents
+
+1. [The problem](#the-problem)
+2. [The solution](#the-solution)
+3. [How we measure it](#how-we-measure-it)
+4. [Architecture at a glance](#architecture-at-a-glance)
+5. [Tech stack at a glance](#tech-stack-at-a-glance)
+6. [Repo structure](#repo-structure)
+7. [Getting started](#getting-started)
+8. [What works today](#what-works-today)
+9. [Tools used and how](#tools-used-and-how)
+10. [Eval protocol](#eval-protocol)
+11. [Who it is for (HYPOTHESIS)](#who-it-is-for-hypothesis)
+12. [Business model (HYPOTHESIS)](#business-model-hypothesis)
+13. [Risks and known limits](#risks-and-known-limits)
+14. [VERIFY list](#verify-list)
+15. [Hackathon submission](#hackathon-submission)
+16. [Contributing](#contributing)
+17. [License](#license)
 
 ## The problem
 
@@ -41,7 +69,7 @@ The current choice is: don't let the agent pay, or give it your wallet and hope.
 
 > Companies are about to let AI agents spend their money. Mandate is the spending limit and approval workflow for that — a treasurer sets a budget, per-item caps, categories and an approval threshold; the agent can shop, but a deterministic policy engine outside the model decides what is actually paid for, and logs every decision. We ran the same attack suite against a naive agent, a prompt-hardened agent and Mandate, and we report the numbers.
 
-## USP: we measure it
+## How we measure it
 
 Most agent-shopping projects optimize for *finding and buying*. We optimize for *making delegation safe*, and we test it rather than assert it. The same attack suite runs against three configurations:
 
@@ -52,27 +80,6 @@ Most agent-shopping projects optimize for *finding and buying*. We optimize for 
 | (c) Mandate | LLM proposes; deterministic policy engine decides |
 
 **We do not claim this is unique.** Payment networks and PayPal itself are building agent payment controls, and we have not yet surveyed what exists (`VERIFY`). The claim we are prepared to defend is narrower and testable: *a rule layer outside the LLM blocks attacks that prompt-only defenses miss, and we measured it.* Numbers go in this README once the eval suite has run; until then, this section reports no results.
-
-## Who it is for — HYPOTHESIS
-
-Nothing below has been validated with real users. Each team member runs one 15-minute interview; findings land here.
-
-| Segment | Status |
-|---|---|
-| Student society treasurers, club organizers, early-stage ops leads — small, frequent group purchases | **HYPOTHESIS** — starting audience |
-| Businesses that let AI agents buy for them, and developers building those agents | **HYPOTHESIS** — later audience |
-| People who just want a shopping chatbot | Explicitly **not** the target; the value here is control |
-
-## Business model — HYPOTHESIS
-
-We have no pricing data. Interviews test willingness to pay.
-
-| Line | Idea |
-|---|---|
-| Free tier | Small groups and student societies — entry point and proof, little budget |
-| Subscription | Small businesses and startups with frequent purchases; priced per team or per agent |
-| Developer API | Teams building their own shopping agents call our policy check, priced per checked transaction |
-| Transaction fee | Possible small fee on agent-initiated purchases. `VERIFY` how this interacts with PayPal's own fees and terms |
 
 ## Architecture at a glance
 
@@ -196,83 +203,6 @@ Only what the code does today. Planned work is marked as such.
 | **Channel3** | Planned product search | Not integrated |
 | **Elastic, APIMatic** | Planned | Not used |
 
-## Team and roles
-
-Owners are `@TBD` until the team claims them. Five roles, one per member.
-
-| Role | Owner | Responsibilities | Gate 1 (Oct 27) | Gate 2 (Nov 2) | Gate 3 (Nov 6) |
-|---|---|---|---|---|---|
-| **Backend lead** | `@TBD` | PayPal integration, agent service, payment-autonomy spike, Render deployment | Spike result documented; one real sandbox transaction executed by deployed code | Order state machine and payments module end-to-end on the deployed app | Clean-machine run from README; deploy runbook |
-| **Payments / policy** | `@TBD` | Order state machine, policy engine, webhook handling, attack-case design | Policy engine skeleton and money utils with unit tests | Full policy engine (budget, per-item, category, threshold, structuring), webhook dedupe, budget reservations | 25+ attack cases written, half held out; failure analysis |
-| **LLM layer** | `@TBD` | Intent parsing, Channel3 search and ranking, injection-hardened prompts, eval harness | Intent schema and Channel3 search returning normalized candidates | Ranking and hardened prompts wired into the flow; eval harness runs | Benign (~30) and attack suites run across configs (a), (b), (c); results committed |
-| **Frontend** | `@TBD` | Chat UI, AG Studio dashboard | Thin-slice chat UI against the deployed API | Dashboard v1: spend, pending approvals, blocked attempts with reasons | Polish, empty and error states, demo-ready screens |
-| **Integrations and docs** | `@TBD` | Zapier approvals, Elastic audit mirror, Postman collection, README, demo video, Devpost write-up, user interviews | Accounts and credits set up; one interview booked per member | Zapier approval round-trip works; Elastic mirror indexing | 5+ interviews summarized here; Postman collection; video script; submission draft |
-
----
-
-# What we need to win
-
-## Judging criteria → evidence
-
-All five criteria carry equal weight. Technological Implementation is also the tie-break. Stage 1 is pass/fail on real PayPal API use. Judges may run automated AI analysis over this repo, so accuracy here matters more than enthusiasm.
-
-| Criterion | What we must show | Evidence artifact |
-|---|---|---|
-| **Technological Implementation** (tie-break) | Real PayPal sandbox calls from deployed code; order state machine with idempotency; deterministic policy engine; webhook dedupe and reconciliation; durable approvals | Deployed demo URL · [docs/uml.md](docs/uml.md) state and sequence diagrams · `packages/policy` unit tests · CI green |
-| **Design** | One coherent flow (set mandate, request, decision, pay, track); every block shows a human-readable reason | Demo video walkthrough · AG Studio dashboard screens · reason codes in [docs/er-diagram.md](docs/er-diagram.md) |
-| **Potential Impact** | A named user group, interview evidence, and a quantified safety result | Interview summaries in this README · eval results in `packages/evals/results/` |
-| **Innovation / Idea** | Guardrail-first agent commerce: injection and structuring defenses outside the model, measured against two baselines | Three-configuration comparison table, populated after the eval run · [ADR 0004](docs/adr/0004-llm-has-no-tools-policy-in-code.md) |
-| **Presentation** | Side-by-side attack demo: the naive agent pays, Mandate blocks and explains | YouTube video under 3:00 · Devpost write-up |
-
-## Prize targets
-
-A project can win **one** Grand/Honorable prize **plus one** sponsor prize.
-
-| Track | Target |
-|---|---|
-| Grand / Honorable | Best Use of Agentic Commerce · Best Use of PayPal + AI · Most Impactful |
-| Sponsor | AG Grid · Channel3 · Render · APIMatic |
-
-## Sponsor usage
-
-Each sponsor must do real work in the product, not appear in a logo strip.
-
-| Sponsor | Depth | Prize angle |
-|---|---|---|
-| **PayPal** (REST Orders v2) | Core — orders, capture, reconciliation, webhooks. Refunds and disputes are not built. Stage 1 depends on it | Best Use of PayPal + AI; Agentic Commerce |
-| **Channel3** | Core — product search and price data; the source of normalized catalog prices | Channel3 sponsor prize |
-| **AG Grid** | Core — the dashboard's requests table (Community edition) | AG Grid sponsor prize |
-| **Render** | Core — web service, static site, Postgres, durable background handling | Render sponsor prize |
-| **APIMatic** | Supporting — Context Plugin used while building the PayPal integration, documented | APIMatic sponsor prize |
-| **Zapier** | Supporting — approval requests and notifications to the approver | Supports Design and Impact |
-| **Elastic** | Supporting — audit-log mirror; "have we bought this before?" search | Supports Tech Implementation |
-| **Postman** | Supporting — collection and API tests shipped in the repo | Supports Tech Implementation |
-| **Bryntum, KERNEL, Astropods** | **Stretch only**, not before Gate 2 | Opportunistic |
-
-## Plan and gates
-
-| Date | Gate |
-|---|---|
-| Oct 24–27 | Payment-autonomy spike and deployed thin slice. **Gate 1 (Oct 27):** one real sandbox transaction executed by deployed code. If missed, switch to the fallback idea (*Runway*) |
-| Nov 2 | **Gate 2:** end-to-end MVP works on the deployed app |
-| Nov 6 | **Gate 3:** a stranger can run it from this README |
-| Nov 7 | Feature freeze |
-| Nov 10 | Submit |
-| Nov 11–12 | Buffer. Treat the evening of **Nov 11 IST** as the real deadline |
-
-## Submission checklist
-
-- [ ] Public repo with the **license visible in the About section** (Apache-2.0 is already in this repo)
-- [ ] Working demo: hosted URL **and** local run instructions — both
-- [ ] Testing instructions plus judge sandbox credentials entered in the Devpost submission, **not** in the repo
-- [ ] YouTube video, public, **under 3:00**, real working app, **no copyrighted music**
-- [ ] Tools-used list: every sponsor, and specifically *how* each was used
-- [ ] README covers problem, user, architecture, setup, metrics and known limits
-- [ ] Sponsor usage documented for every sponsor prize targeted
-- [ ] All team members added in Devpost; Representative identified; prize split agreed
-- [ ] Clean-machine test on a fresh clone
-- [ ] No keys, tokens, `.env` files or trial licenses anywhere in git history
-
 ## Eval protocol
 
 Designed before the results exist, so we cannot tune the protocol to flatter the outcome. Artifacts live in `packages/evals/`; results are committed as files under `packages/evals/results/`, not in the database.
@@ -287,7 +217,28 @@ Designed before the results exist, so we cannot tune the protocol to flatter the
 | Metrics | Task success rate · attack success rate per configuration · false-block rate on the benign set · p50/p95 end-to-end latency · LLM cost per purchase |
 | Reporting | Whatever we measure, including failures and regressions. The synthetic-listing limitation is stated explicitly |
 
-## Risks
+## Who it is for (HYPOTHESIS)
+
+Nothing below has been validated with real users. Each team member runs one 15-minute interview; findings land here.
+
+| Segment | Status |
+|---|---|
+| Student society treasurers, club organizers, early-stage ops leads — small, frequent group purchases | **HYPOTHESIS** — starting audience |
+| Businesses that let AI agents buy for them, and developers building those agents | **HYPOTHESIS** — later audience |
+| People who just want a shopping chatbot | Explicitly **not** the target; the value here is control |
+
+## Business model (HYPOTHESIS)
+
+We have no pricing data. Interviews test willingness to pay.
+
+| Line | Idea |
+|---|---|
+| Free tier | Small groups and student societies — entry point and proof, little budget |
+| Subscription | Small businesses and startups with frequent purchases; priced per team or per agent |
+| Developer API | Teams building their own shopping agents call our policy check, priced per checked transaction |
+| Transaction fee | Possible small fee on agent-initiated purchases. `VERIFY` how this interacts with PayPal's own fees and terms |
+
+## Risks and known limits
 
 | # | Risk | Plan |
 |---|---|---|
@@ -315,7 +266,82 @@ Open questions. None of these may be stated as fact until tested.
 | 8 | How sponsors handle trials that expire before judging ends Dec 15 | Integrations/docs `@TBD` |
 | 9 | Whether PayPal checkout screens count as third-party trademarks in the video | Integrations/docs `@TBD` |
 
----
+## Hackathon submission
+
+Everything below is project management for the Devpost entry. It is kept here so judges and teammates can check our claims against evidence.
+
+### Judging criteria → evidence
+
+All five criteria carry equal weight. Technological Implementation is also the tie-break. Stage 1 is pass/fail on real PayPal API use. Judges may run automated AI analysis over this repo, so accuracy here matters more than enthusiasm.
+
+| Criterion | What we must show | Evidence artifact |
+|---|---|---|
+| **Technological Implementation** (tie-break) | Real PayPal sandbox calls from deployed code; order state machine with idempotency; deterministic policy engine; webhook dedupe and reconciliation; durable approvals | Deployed demo URL · [docs/uml.md](docs/uml.md) state and sequence diagrams · `packages/policy` unit tests · CI green |
+| **Design** | One coherent flow (set mandate, request, decision, pay, track); every block shows a human-readable reason | Demo video walkthrough · AG Studio dashboard screens · reason codes in [docs/er-diagram.md](docs/er-diagram.md) |
+| **Potential Impact** | A named user group, interview evidence, and a quantified safety result | Interview summaries in this README · eval results in `packages/evals/results/` |
+| **Innovation / Idea** | Guardrail-first agent commerce: injection and structuring defenses outside the model, measured against two baselines | Three-configuration comparison table, populated after the eval run · [ADR 0004](docs/adr/0004-llm-has-no-tools-policy-in-code.md) |
+| **Presentation** | Side-by-side attack demo: the naive agent pays, Mandate blocks and explains | YouTube video under 3:00 · Devpost write-up |
+
+### Prize targets
+
+A project can win **one** Grand/Honorable prize **plus one** sponsor prize.
+
+| Track | Target |
+|---|---|
+| Grand / Honorable | Best Use of Agentic Commerce · Best Use of PayPal + AI · Most Impactful |
+| Sponsor | AG Grid · Channel3 · Render · APIMatic |
+
+### Sponsor usage
+
+Each sponsor must do real work in the product, not appear in a logo strip.
+
+| Sponsor | Depth | Prize angle |
+|---|---|---|
+| **PayPal** (REST Orders v2) | Core — orders, capture, reconciliation, webhooks. Refunds and disputes are not built. Stage 1 depends on it | Best Use of PayPal + AI; Agentic Commerce |
+| **Channel3** | Core — product search and price data; the source of normalized catalog prices | Channel3 sponsor prize |
+| **AG Grid** | Core — the dashboard's requests table (Community edition) | AG Grid sponsor prize |
+| **Render** | Core — web service, static site, Postgres, durable background handling | Render sponsor prize |
+| **APIMatic** | Supporting — Context Plugin used while building the PayPal integration, documented | APIMatic sponsor prize |
+| **Zapier** | Supporting — approval requests and notifications to the approver | Supports Design and Impact |
+| **Elastic** | Supporting — audit-log mirror; "have we bought this before?" search | Supports Tech Implementation |
+| **Postman** | Supporting — collection and API tests shipped in the repo | Supports Tech Implementation |
+| **Bryntum, KERNEL, Astropods** | **Stretch only**, not before Gate 2 | Opportunistic |
+
+### Team and roles
+
+Owners are `@TBD` until the team claims them. Five roles, one per member.
+
+| Role | Owner | Responsibilities | Gate 1 (Oct 27) | Gate 2 (Nov 2) | Gate 3 (Nov 6) |
+|---|---|---|---|---|---|
+| **Backend lead** | `@TBD` | PayPal integration, agent service, payment-autonomy spike, Render deployment | Spike result documented; one real sandbox transaction executed by deployed code | Order state machine and payments module end-to-end on the deployed app | Clean-machine run from README; deploy runbook |
+| **Payments / policy** | `@TBD` | Order state machine, policy engine, webhook handling, attack-case design | Policy engine skeleton and money utils with unit tests | Full policy engine (budget, per-item, category, threshold, structuring), webhook dedupe, budget reservations | 25+ attack cases written, half held out; failure analysis |
+| **LLM layer** | `@TBD` | Intent parsing, Channel3 search and ranking, injection-hardened prompts, eval harness | Intent schema and Channel3 search returning normalized candidates | Ranking and hardened prompts wired into the flow; eval harness runs | Benign (~30) and attack suites run across configs (a), (b), (c); results committed |
+| **Frontend** | `@TBD` | Chat UI, AG Studio dashboard | Thin-slice chat UI against the deployed API | Dashboard v1: spend, pending approvals, blocked attempts with reasons | Polish, empty and error states, demo-ready screens |
+| **Integrations and docs** | `@TBD` | Zapier approvals, Elastic audit mirror, Postman collection, README, demo video, Devpost write-up, user interviews | Accounts and credits set up; one interview booked per member | Zapier approval round-trip works; Elastic mirror indexing | 5+ interviews summarized here; Postman collection; video script; submission draft |
+
+### Plan and gates
+
+| Date | Gate |
+|---|---|
+| Oct 24–27 | Payment-autonomy spike and deployed thin slice. **Gate 1 (Oct 27):** one real sandbox transaction executed by deployed code. If missed, switch to the fallback idea (*Runway*) |
+| Nov 2 | **Gate 2:** end-to-end MVP works on the deployed app |
+| Nov 6 | **Gate 3:** a stranger can run it from this README |
+| Nov 7 | Feature freeze |
+| Nov 10 | Submit |
+| Nov 11–12 | Buffer. Treat the evening of **Nov 11 IST** as the real deadline |
+
+### Submission checklist
+
+- [ ] Public repo with the **license visible in the About section** (Apache-2.0 is already in this repo)
+- [ ] Working demo: hosted URL **and** local run instructions — both
+- [ ] Testing instructions plus judge sandbox credentials entered in the Devpost submission, **not** in the repo
+- [ ] YouTube video, public, **under 3:00**, real working app, **no copyrighted music**
+- [ ] Tools-used list: every sponsor, and specifically *how* each was used
+- [ ] README covers problem, user, architecture, setup, metrics and known limits
+- [ ] Sponsor usage documented for every sponsor prize targeted
+- [ ] All team members added in Devpost; Representative identified; prize split agreed
+- [ ] Clean-machine test on a fresh clone
+- [ ] No keys, tokens, `.env` files or trial licenses anywhere in git history
 
 ## Contributing
 
