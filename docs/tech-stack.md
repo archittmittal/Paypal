@@ -31,7 +31,7 @@ Where the recommended default is kept but the author disagrees, a **Dissent** no
 | **Local environment** | Docker Compose: Postgres, Elasticsearch | A stranger runs `docker compose up -d && pnpm dev` — the Gate 3 test | Local installs, cloud-only development | Elasticsearch is heavy on a laptop. See §2 |
 | **Deployment** | Render: static site, web service, worker, managed Postgres | Sponsor-core; one platform for all four pieces; straightforward environment-variable config | Fly.io, Railway, Vercel + Neon | `VERIFY` Render database plan limits (storage, connections, retention) |
 | **API docs / collection** | Postman collection in the repo | Sponsor-supporting; gives judges a way to exercise the API directly | OpenAPI only | Keeping the collection in step with the code |
-| **PayPal integration** | PayPal Agent Toolkit / MCP, called only from the `payments` module | Stage 1 is pass/fail on real PayPal API use | Direct REST calls | `VERIFY` autonomous capture in sandbox, the exact idempotency header name, and whether remote MCP commerce tools work in sandbox |
+| **PayPal integration** | PayPal Agent Toolkit / MCP, called only from the `payments` module | Stage 1 is pass/fail on real PayPal API use | Direct REST calls | Autonomous capture works in sandbox ([spike-results.md](spike-results.md)); `VERIFY` the exact idempotency header name, and whether remote MCP commerce tools work in sandbox |
 
 ## 2. Dissent notes
 
@@ -91,7 +91,7 @@ Pinned versions are decided at scaffold time and recorded here then, against the
 |---|---|
 | 1 | Render database plan limits: storage, connection count, backup and retention policy |
 | 2 | The exact PayPal idempotency request header name and its semantics on retry |
-| 3 | Whether autonomous capture via a saved or vaulted payment method works in sandbox, or payer approval is always required |
+| 3 | ~~Whether autonomous capture via a saved or vaulted payment method works in sandbox~~ Answered: yes in sandbox, see [spike-results.md](spike-results.md). Live still needs PayPal's approval for reference transactions |
 | 4 | Whether PayPal's remote MCP commerce tools work in sandbox |
 | 5 | The AG Studio boilerplate's React and build-tool versions and project layout |
 | 6 | How AG Grid and Elastic handle trials that expire before judging ends Dec 15 |

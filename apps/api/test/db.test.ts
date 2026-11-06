@@ -35,7 +35,7 @@ async function rejects(sql: string, params: unknown[] = []): Promise<string> {
 
 let counter = 0;
 /** Creates a purchase request and policy decision so a reservation has something to hang on. */
-async function decision(): Promise<string> {
+async function decision(outcome: 'ALLOW' | 'NEEDS_APPROVAL' | 'DENY' = 'ALLOW', totalMinor = 0): Promise<string> {
   counter += 1;
   const request = await db.query<{ id: string }>(
     'INSERT INTO purchase_request (mandate_id, requester_user_id, raw_text, request_key) VALUES ($1, $2, $3, $4) RETURNING id',
@@ -43,11 +43,75 @@ async function decision(): Promise<string> {
   );
   const result = await db.query<{ id: string }>(
     `INSERT INTO policy_decision (purchase_request_id, outcome, reasons, policy_version, evaluated_total_minor_units, currency, decided_at)
-     VALUES ($1, 'ALLOW', '[]'::jsonb, '0.1.0', 0, 'USD', now()) RETURNING id`,
-    [request.rows[0]?.id],
+     VALUES ($1, $2, '[]'::jsonb, '0.1.0', $3, 'USD', now()) RETURNING id`,
+    [request.rows[0]?.id, outcome, totalMinor],
   );
   return result.rows[0]?.id ?? '';
 }
+
+/** Inserts a payment order for a decision the way the service does. Returns the error message, or 'ok'. */
+async function openOrder(
+  decisionId: string,
+  opts: { approvalId?: string; amountMinor?: number; currency?: string; requestOf?: string } = {},
+): Promise<string> {
+  counter += 1;
+  try {
+    await db.transaction((tx) =>
+      tx.query(
+        `INSERT INTO payment_order (purchase_request_id, policy_decision_id, approval_id, idempotency_key, state, payment_variant, amount_minor_units, currency)
+         SELECT purchase_request_id, $1, $2, $3, 'PAYMENT_PENDING', 'APPROVAL_LINK', $4, $5
+           FROM policy_decision WHERE id = $6`,
+        [decisionId, opts.approvalId ?? null, `order-key-${counter}`, opts.amountMinor ?? 1000, opts.currency ?? 'USD', opts.requestOf ?? decisionId],
+      ),
+    );
+    return 'ok';
+  } catch (error) {
+    return (error as Error).message;
+  }
+}
+
+async function approval(decisionId: string, status: 'PENDING' | 'APPROVED' | 'REJECTED'): Promise<string> {
+  counter += 1;
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO approval (purchase_request_id, policy_decision_id, approver_user_id, status, token_hash, decided_at, expires_at)
+     SELECT purchase_request_id, id, $2, $3, $4, CASE WHEN $3 = 'PENDING' THEN NULL ELSE now() END, now() + interval '1 day'
+       FROM policy_decision WHERE id = $1 RETURNING id`,
+    [decisionId, DEMO_IDS.approver, status, `hash-${counter}`],
+  );
+  return rows[0]?.id ?? '';
+}
+
+describe('payment orders need an authorization (hard rule 1, enforced by the database)', () => {
+  it('accepts an order for an ALLOW decision, up to its evaluated total', async () => {
+    expect(await openOrder(await decision('ALLOW', 1000))).toBe('ok');
+  });
+
+  it('refuses an order for a DENY decision', async () => {
+    expect(await openOrder(await decision('DENY', 1000))).toMatch(/not authorized/);
+  });
+
+  it('refuses a NEEDS_APPROVAL order with no approval, or one not yet APPROVED', async () => {
+    const pending = await decision('NEEDS_APPROVAL', 1000);
+    expect(await openOrder(pending)).toMatch(/not authorized/);
+    expect(await openOrder(pending, { approvalId: await approval(pending, 'PENDING') })).toMatch(/not authorized/);
+    const rejected = await decision('NEEDS_APPROVAL', 1000);
+    expect(await openOrder(rejected, { approvalId: await approval(rejected, 'REJECTED') })).toMatch(/not authorized/);
+  });
+
+  it('accepts a NEEDS_APPROVAL order once its own approval is APPROVED, but not another decision\'s approval', async () => {
+    const needs = await decision('NEEDS_APPROVAL', 1000);
+    const other = await decision('NEEDS_APPROVAL', 1000);
+    expect(await openOrder(needs, { approvalId: await approval(other, 'APPROVED') })).toMatch(/not authorized/);
+    expect(await openOrder(needs, { approvalId: await approval(needs, 'APPROVED') })).toBe('ok');
+  });
+
+  it('refuses more than the decision evaluated, a different currency, or another request\'s decision', async () => {
+    expect(await openOrder(await decision('ALLOW', 1000), { amountMinor: 1001 })).toMatch(/exceeds/);
+    expect(await openOrder(await decision('ALLOW', 1000), { currency: 'EUR' })).toMatch(/exceeds/);
+    const mine = await decision('ALLOW', 1000);
+    expect(await openOrder(await decision('ALLOW', 1000), { requestOf: mine })).toMatch(/another request/);
+  });
+});
 
 describe('migrations', () => {
   it('applies every shipped migration in order and records its checksum', async () => {
@@ -156,7 +220,7 @@ describe('schema constraints', () => {
 
   it('keeps order_event append-only', async () => {
     // Row triggers only fire on rows that exist, so create an order with one event first.
-    const decisionId = await decision();
+    const decisionId = await decision('ALLOW', 1000);
     const order = await db.query<{ id: string }>(
       `INSERT INTO payment_order (purchase_request_id, policy_decision_id, idempotency_key, state, payment_variant, amount_minor_units, currency)
        SELECT purchase_request_id, id, 'order-key-append-only', 'PAYMENT_PENDING', 'APPROVAL_LINK', 1000, 'USD'

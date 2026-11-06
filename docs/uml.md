@@ -1,7 +1,7 @@
 # UML: Mandate
 
 The domain model, the order lifecycle, and the five flows that matter: happy path, approval, blocked injection, webhook dedupe, and payment-timeout reconciliation.
-Every sequence diagram shows **both payment variants** — pre-authorized capture and payer approval link — because whether the agent can capture autonomously in sandbox is still `VERIFY`.
+Every sequence diagram shows **both payment variants** — pre-authorized capture and payer approval link — The sandbox spike ([spike-results.md](spike-results.md)) showed that Variant A works in sandbox. The API implements Variant B today.
 Structures here map directly onto the tables in [er-diagram.md](er-diagram.md) and the modules in [architecture.md](architecture.md).
 
 **Related:** [README](../README.md) · [architecture](architecture.md) · [ER diagram](er-diagram.md) · [tech stack](tech-stack.md)
@@ -276,7 +276,7 @@ sequenceDiagram
   API->>API: insert BUDGET_RESERVATION with row lock
   API->>PAY: capture, decisionId, idempotencyKey
 
-  alt Variant A - pre-authorized capture, VERIFY
+  alt Variant A - pre-authorized capture, works in sandbox, not yet in API
     PAY->>PP: create order and capture with vaulted method
     PP-->>PAY: CAPTURED
   else Variant B - payer approval link, fallback

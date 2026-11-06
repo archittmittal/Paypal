@@ -13,8 +13,8 @@ type ClientSurface = Pick<PaypalClient, 'createOrder' | 'captureOrder' | 'getOrd
 
 /**
  * The purchase flow's view of PayPal. The only file in the API that imports @mandate/payments
- * (hard rule 1, enforced by test/boundary.test.ts). Buyer-approval orders only until the spike (#9)
- * shows whether sandbox allows charging a vaulted wallet with no buyer present.
+ * (hard rule 1, enforced by test/boundary.test.ts). Buyer-approval orders only. Charging a vaulted wallet works
+ * in sandbox (docs/spike-results.md) but is not wired in here yet.
  */
 export class PaypalGateway implements PaymentGateway {
   readonly #client: ClientSurface;
@@ -57,15 +57,19 @@ function toGatewayOrder(order: OrderSummary): GatewayOrder {
     status: order.status,
     ...(order.approveUrl === undefined ? {} : { approveUrl: order.approveUrl }),
     ...(captured === undefined ? {} : { capturedAmount: captured }),
+    ...(order.captures.some((c) => c.status === 'PENDING') ? { capturePending: true as const } : {}),
   };
 }
+
+/** AMOUNT_MISMATCH comes after money moved, so like a timeout it needs reconciling, never "not captured". */
+const NEEDS_RECONCILE = new Set(['UNKNOWN_OUTCOME', 'AMOUNT_MISMATCH']);
 
 async function mapErrors<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
     if (error instanceof PaymentError) {
-      throw new GatewayError(error.code === 'UNKNOWN_OUTCOME' ? 'UNKNOWN_OUTCOME' : 'REJECTED', error.code);
+      throw new GatewayError(NEEDS_RECONCILE.has(error.code) ? 'UNKNOWN_OUTCOME' : 'REJECTED', error.code);
     }
     // Anything unclassified after a money-moving call could have reached PayPal: treat it as unknown.
     throw new GatewayError('UNKNOWN_OUTCOME', 'UNCLASSIFIED');

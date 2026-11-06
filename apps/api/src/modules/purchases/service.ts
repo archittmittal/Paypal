@@ -292,7 +292,8 @@ export class PurchaseService {
       return this.get(requestId);
     }
 
-    if (remote.status === 'COMPLETED') {
+    // A COMPLETED order whose capture is still PENDING is not paid yet: it falls through to "still pending" below.
+    if (remote.status === 'COMPLETED' && !remote.capturePending) {
       const captured = remote.capturedAmount;
       if (captured?.amountMinor === expected.amountMinor && captured.currency === expected.currency) {
         await this.#markCaptured(ctx, order, expected, remote.status, order.state);
@@ -370,11 +371,17 @@ export class PurchaseService {
     const expected: Money = { amountMinor: Number(toBigInt(order.amount_minor_units)), currency: order.currency };
     try {
       const result = await payments.captureOrder(order.provider_order_id, `cap-${order.id}`, expected);
-      if (result.status !== 'COMPLETED') {
+      if (result.status !== 'COMPLETED' || result.capturePending) {
         await db.transaction(async (tx) => {
           await tx.query('UPDATE payment_order SET provider_status = $2 WHERE id = $1', [order.id, result.status]);
           await this.#event(tx, order.id, 'capture_pending', 'PAYMENT_PENDING', 'PAYMENT_PENDING', { providerStatus: result.status });
         });
+        return await this.get(requestId);
+      }
+      const captured = result.capturedAmount;
+      if (captured?.amountMinor !== expected.amountMinor || captured.currency !== expected.currency) {
+        // Defence in depth behind the client's own check: never mark settled what PayPal did not report as settled.
+        await this.#markUnknown(ctx, order.id, 'AMOUNT_MISMATCH');
         return await this.get(requestId);
       }
       await this.#markCaptured(ctx, order, expected, result.status, 'PAYMENT_PENDING');

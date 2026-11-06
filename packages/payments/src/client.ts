@@ -30,7 +30,10 @@ const OrderIdSchema = z.string().regex(/^[A-Z0-9]{1,64}$/);
 export type PaymentSource =
   /** The buyer approves on PayPal. saveForLater asks PayPal to vault the wallet on success. */
   | { kind: 'buyer-approval'; saveForLater?: boolean }
-  /** Charges a previously vaulted wallet with no buyer present. VERIFY: the spike tests whether sandbox allows this. */
+  /**
+   * Charges a previously vaulted wallet with no buyer present. Works in sandbox: the order comes back COMPLETED on
+   * create (docs/spike-results.md). createOrder does not check the captured amount, so a caller must.
+   */
   | { kind: 'vaulted'; vaultId: string };
 
 export interface CreateOrderInput {
@@ -266,11 +269,14 @@ function summarize(order: OrderResponse): OrderSummary {
   };
 }
 
+/** Capture states where PayPal has taken the money: PENDING (e.g. under review) settles later but is already committed. */
+const MONEY_TAKEN = new Set(['COMPLETED', 'PENDING']);
+
 function assertCaptured(order: OrderSummary, expected: Money): void {
-  const completed = order.captures.filter((capture) => capture.status === 'COMPLETED');
-  if (order.status !== 'COMPLETED' || completed.length === 0) return;
+  const taken = order.captures.filter((capture) => MONEY_TAKEN.has(capture.status));
+  if (taken.length === 0) return;
   try {
-    const total = completed.map((capture) => capture.amount).reduce((sum, amount) => addMoney(sum, amount));
+    const total = taken.map((capture) => capture.amount).reduce((sum, amount) => addMoney(sum, amount));
     if (total.amountMinor === expected.amountMinor && total.currency === expected.currency) return;
   } catch {
     // Mixed currencies fall through to the mismatch below.

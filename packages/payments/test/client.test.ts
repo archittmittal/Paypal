@@ -192,6 +192,23 @@ describe('captureOrder', () => {
     );
   });
 
+  // PayPal can complete the order while the capture itself is still PENDING (e.g. under review); money is committed.
+  const pendingCapture = (value: string) => ({
+    ...captured(value),
+    purchase_units: [{ payments: { captures: [{ id: 'CAP1', status: 'PENDING', amount: { currency_code: 'USD', value } }] } }],
+  });
+
+  it('checks the amount of a PENDING capture too', async () => {
+    const { client } = harness([token(), json(201, pendingCapture('20.00'))]);
+    await expectCode(client.captureOrder('ORDER1', 'decision-0001-capture', usd(1999)), 'AMOUNT_MISMATCH');
+  });
+
+  it('accepts a PENDING capture for the exact amount and reports it as PENDING', async () => {
+    const { client } = harness([token(), json(201, pendingCapture('19.99'))]);
+    const order = await client.captureOrder('ORDER1', 'decision-0001-capture', usd(1999));
+    expect(order.captures).toEqual([{ id: 'CAP1', status: 'PENDING', amount: usd(1999) }]);
+  });
+
   it('refuses an order id that could change the request path', async () => {
     const { calls, client } = harness([]);
     await expect(client.captureOrder('../ORDER1', 'decision-0001-capture', usd(1))).rejects.toThrow();

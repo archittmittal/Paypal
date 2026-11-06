@@ -56,6 +56,8 @@ export interface GatewayOrder {
   approveUrl?: string;
   /** Sum of COMPLETED captures, when PayPal reports any. */
   capturedAmount?: Money;
+  /** A capture is PENDING: PayPal took the money but has not settled it. Not paid yet; the budget stays held. */
+  capturePending?: true;
 }
 
 export type GatewayFailureKind = 'UNKNOWN_OUTCOME' | 'REJECTED';
