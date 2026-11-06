@@ -175,7 +175,7 @@ pnpm eval --live                           # the real benchmark; needs ANTHROPIC
 | Purchase flow with budget reservations, idempotency keys and an order state machine | Built; integration tests on real Postgres in CI |
 | LLM intent parser and ranker (no tools; fabricated ids and inflated quantities refused) | Built; tested with a fake model. **Not yet run live** (`VERIFY`) |
 | Catalog | **Offline fixture** with deliberately poisoned listings. Channel3 not integrated (`VERIFY`) |
-| PayPal: create order, capture, read order, webhook signature check, reconciliation | Built against the Orders v2 sandbox API; tested with fakes. **No live sandbox payment recorded yet** (#9) |
+| PayPal: create order, capture, read order, webhook signature check, reconciliation | Built against the Orders v2 sandbox API; tested with fakes. **Live sandbox run recorded 2026-11-06** ([docs/spike-results.md](docs/spike-results.md)): a buyer-approved $5.00 order captured `COMPLETED`, and the saved wallet was then charged $5.00 with no buyer present (`COMPLETED`). Run from a laptop with the spike script, not yet through the deployed API (#14). The API uses buyer approval; the saved-wallet path is not wired in yet |
 | Approvals: single-use links, Zapier message, review page | Built; the Zap itself still has to be created ([docs/zapier.md](docs/zapier.md)) |
 | Web app: request, decision with every reason, mandate setup, dashboard, audit trail | Built; not yet deployed |
 | Benchmark: 31 benign requests, 26 attacks in 13 categories, half held out | Harness and suites built; **no live results yet**, so this README reports none |
@@ -291,7 +291,7 @@ Designed before the results exist, so we cannot tune the protocol to flatter the
 
 | # | Risk | Plan |
 |---|---|---|
-| 1 | The agent may not be able to capture payments autonomously in sandbox | Two-day spike. Fallback: one-tap PayPal approval for small carts plus an approver for large ones — the guardrail story survives either way. Both variants are diagrammed in [docs/uml.md](docs/uml.md) |
+| 1 | The agent may not be able to capture payments autonomously | Sandbox spike done: a saved wallet can be charged with no buyer present ([docs/spike-results.md](docs/spike-results.md)). Live needs PayPal's reference-transaction approval, which we have not tested. Fallback: one-tap PayPal approval for small carts plus an approver for large ones — the guardrail story survives either way. Both variants are diagrammed in [docs/uml.md](docs/uml.md) |
 | 2 | Sandbox money cannot pay real retailers, so fulfillment is simulated | Stated plainly here and in the video. We never imply real settlement |
 | 3 | Read as "just another shopping agent" | Lead with the guardrail layer and the measured three-configuration result |
 | 4 | Sponsor trials (AG Studio 45 days, Elastic 14+30) may expire before judging ends Dec 15 | Start trials late; ask sponsors on Discord; the demo video is primary evidence; keep the repo runnable against local Postgres and Elasticsearch |
@@ -305,7 +305,7 @@ Open questions. None of these may be stated as fact until tested.
 
 | # | Item | Owner |
 |---|---|---|
-| 1 | Can the agent capture payments autonomously in sandbox (saved or vaulted payment method), or is payer approval always required? | Backend lead `@TBD` |
+| 1 | ~~Can the agent capture payments autonomously in sandbox?~~ **Answered: yes in sandbox** ([docs/spike-results.md](docs/spike-results.md)). Live is still open | Backend lead `@TBD` |
 | 2 | Do PayPal's remote MCP commerce tools (gift cards only today) work in sandbox? | Backend lead `@TBD` |
 | 3 | Exact PayPal webhook event names and ordering guarantees | Payments/policy `@TBD` |
 | 4 | Whether similar agent-spending controls already exist, before we claim novelty | Integrations/docs `@TBD` |

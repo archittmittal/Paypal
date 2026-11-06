@@ -30,7 +30,10 @@ const OrderIdSchema = z.string().regex(/^[A-Z0-9]{1,64}$/);
 export type PaymentSource =
   /** The buyer approves on PayPal. saveForLater asks PayPal to vault the wallet on success. */
   | { kind: 'buyer-approval'; saveForLater?: boolean }
-  /** Charges a previously vaulted wallet with no buyer present. VERIFY: the spike tests whether sandbox allows this. */
+  /**
+   * Charges a previously vaulted wallet with no buyer present. Works in sandbox: the order comes back COMPLETED on
+   * create (docs/spike-results.md). createOrder does not check the captured amount, so a caller must.
+   */
   | { kind: 'vaulted'; vaultId: string };
 
 export interface CreateOrderInput {

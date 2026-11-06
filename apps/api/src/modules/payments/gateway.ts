@@ -13,8 +13,8 @@ type ClientSurface = Pick<PaypalClient, 'createOrder' | 'captureOrder' | 'getOrd
 
 /**
  * The purchase flow's view of PayPal. The only file in the API that imports @mandate/payments
- * (hard rule 1, enforced by test/boundary.test.ts). Buyer-approval orders only until the spike (#9)
- * shows whether sandbox allows charging a vaulted wallet with no buyer present.
+ * (hard rule 1, enforced by test/boundary.test.ts). Buyer-approval orders only. Charging a vaulted wallet works
+ * in sandbox (docs/spike-results.md) but is not wired in here yet.
  */
 export class PaypalGateway implements PaymentGateway {
   readonly #client: ClientSurface;

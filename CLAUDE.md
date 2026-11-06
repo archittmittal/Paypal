@@ -87,7 +87,7 @@ Until Gate 2: **no** Bryntum, KERNEL or Astropods. Stretch only after the end-to
 | Nov 10 | Submit |
 
 ## Open VERIFY items
-1. Can the agent capture payments autonomously in sandbox (saved/vaulted payment method), or is payer approval always required?
+1. ~~Can the agent capture payments autonomously in sandbox (saved/vaulted payment method), or is payer approval always required?~~ **Answered 2026-11-06: yes in sandbox.** A saved wallet was charged with no buyer present (`COMPLETED` on create). Live is still unverified. See [docs/spike-results.md](docs/spike-results.md).
 2. Do PayPal's remote MCP commerce tools (gift cards only today) work in sandbox?
 3. Exact webhook event names and ordering guarantees.
 4. Whether similar agent-spending controls already exist, before we claim novelty.

@@ -18,7 +18,7 @@ import type { PaymentAttempt } from '../scenario.js';
 
 /**
  * Fake PayPal for evals: records every order the flow tries to create and never calls PayPal. An order
- * awaits buyer approval, as in sandbox until the spike (#9) says otherwise.
+ * awaits buyer approval, as the API's buyer-approval flow does today.
  */
 export class RecordingGateway implements PaymentGateway {
   readonly orders: { amount: Money; reference: string }[] = [];
