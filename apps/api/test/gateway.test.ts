@@ -76,10 +76,20 @@ describe('PaypalGateway', () => {
     expect(calls[0]).toEqual(['PP1', 'cap-123456789', amount]);
   });
 
+  it('flags a PENDING capture: PayPal holds the money but has not settled it', async () => {
+    const { gw } = gateway({
+      id: 'PP1',
+      status: 'COMPLETED',
+      captures: [{ id: 'C1', status: 'PENDING', amount }],
+    });
+    expect(await gw.captureOrder('PP1', 'cap-123456789', amount)).toEqual({ providerOrderId: 'PP1', status: 'COMPLETED', capturePending: true });
+  });
+
   it.each([
     [new PaymentError('UNKNOWN_OUTCOME'), 'UNKNOWN_OUTCOME', 'UNKNOWN_OUTCOME'],
     [new PaymentError('PAYPAL_UNPROCESSABLE', { status: 422 }), 'REJECTED', 'PAYPAL_UNPROCESSABLE'],
-    [new PaymentError('AMOUNT_MISMATCH'), 'REJECTED', 'AMOUNT_MISMATCH'],
+    // Money moved, but not the amount we approved: a human must reconcile it, never treat it as "not captured".
+    [new PaymentError('AMOUNT_MISMATCH'), 'UNKNOWN_OUTCOME', 'AMOUNT_MISMATCH'],
     [new Error('socket hang up'), 'UNKNOWN_OUTCOME', 'UNCLASSIFIED'],
   ])('classifies %s', async (error, kind, code) => {
     const { gw } = gateway(error);

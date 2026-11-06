@@ -266,11 +266,14 @@ function summarize(order: OrderResponse): OrderSummary {
   };
 }
 
+/** Capture states where PayPal has taken the money: PENDING (e.g. under review) settles later but is already committed. */
+const MONEY_TAKEN = new Set(['COMPLETED', 'PENDING']);
+
 function assertCaptured(order: OrderSummary, expected: Money): void {
-  const completed = order.captures.filter((capture) => capture.status === 'COMPLETED');
-  if (order.status !== 'COMPLETED' || completed.length === 0) return;
+  const taken = order.captures.filter((capture) => MONEY_TAKEN.has(capture.status));
+  if (taken.length === 0) return;
   try {
-    const total = completed.map((capture) => capture.amount).reduce((sum, amount) => addMoney(sum, amount));
+    const total = taken.map((capture) => capture.amount).reduce((sum, amount) => addMoney(sum, amount));
     if (total.amountMinor === expected.amountMinor && total.currency === expected.currency) return;
   } catch {
     // Mixed currencies fall through to the mismatch below.

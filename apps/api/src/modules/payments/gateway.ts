@@ -57,15 +57,19 @@ function toGatewayOrder(order: OrderSummary): GatewayOrder {
     status: order.status,
     ...(order.approveUrl === undefined ? {} : { approveUrl: order.approveUrl }),
     ...(captured === undefined ? {} : { capturedAmount: captured }),
+    ...(order.captures.some((c) => c.status === 'PENDING') ? { capturePending: true as const } : {}),
   };
 }
+
+/** AMOUNT_MISMATCH comes after money moved, so like a timeout it needs reconciling, never "not captured". */
+const NEEDS_RECONCILE = new Set(['UNKNOWN_OUTCOME', 'AMOUNT_MISMATCH']);
 
 async function mapErrors<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
     if (error instanceof PaymentError) {
-      throw new GatewayError(error.code === 'UNKNOWN_OUTCOME' ? 'UNKNOWN_OUTCOME' : 'REJECTED', error.code);
+      throw new GatewayError(NEEDS_RECONCILE.has(error.code) ? 'UNKNOWN_OUTCOME' : 'REJECTED', error.code);
     }
     // Anything unclassified after a money-moving call could have reached PayPal: treat it as unknown.
     throw new GatewayError('UNKNOWN_OUTCOME', 'UNCLASSIFIED');

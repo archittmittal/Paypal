@@ -82,7 +82,8 @@ class FakePayments implements PaymentGateway {
   creates: { amount: unknown; idempotencyKey: string; reference: string; description: string }[] = [];
   captures: { orderId: string; key: string; expected: unknown }[] = [];
   createResult: GatewayOrder | Error = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED', approveUrl: 'https://www.sandbox.paypal.com/checkoutnow?token=PP123' };
-  captureResult: GatewayOrder | GatewayError | Error = { providerOrderId: 'PP123', status: 'COMPLETED' };
+  /** Unset: PayPal captures exactly the expected amount, as the sandbox did in the #9 spike. */
+  captureResult: GatewayOrder | GatewayError | Error | undefined;
   getResult: GatewayOrder | Error = { providerOrderId: 'PP123', status: 'PAYER_ACTION_REQUIRED' };
   verifyResult: boolean | Error = true;
 
@@ -91,9 +92,10 @@ class FakePayments implements PaymentGateway {
     return this.createResult instanceof Error ? Promise.reject(this.createResult) : Promise.resolve(this.createResult);
   }
 
-  captureOrder(orderId: string, key: string, expected: unknown) {
+  captureOrder(orderId: string, key: string, expected: Money) {
     this.captures.push({ orderId, key, expected });
-    return this.captureResult instanceof Error ? Promise.reject(this.captureResult) : Promise.resolve(this.captureResult);
+    const result = this.captureResult ?? { providerOrderId: 'PP123', status: 'COMPLETED', capturedAmount: expected };
+    return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
   }
 
   getOrder() {
@@ -376,6 +378,22 @@ describe('capture', () => {
     expect((await svc.get(view.id)).status).toBe('PAYMENT_PENDING');
   });
 
+  it('keeps a COMPLETED order with a PENDING capture open: the budget stays held until PayPal settles', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await pending(payments);
+    payments.captureResult = { providerOrderId: 'PP123', status: 'COMPLETED', capturePending: true };
+    expect(await svc.capture(view.id)).toMatchObject({ status: 'PAYMENT_PENDING', order: { state: 'PAYMENT_PENDING', providerStatus: 'COMPLETED' } });
+    expect(await count("SELECT count(*) AS n FROM budget_reservation WHERE mandate_id = $1 AND state = 'HELD'", [mandateId])).toBe(1);
+  });
+
+  it('never marks CAPTURED when the settled amount differs from the approved one', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await pending(payments);
+    payments.captureResult = { providerOrderId: 'PP123', status: 'COMPLETED', capturedAmount: { amountMinor: 999, currency: 'USD' } };
+    expect(await svc.capture(view.id)).toMatchObject({ status: 'UNKNOWN_OUTCOME', order: { state: 'UNKNOWN_OUTCOME' } });
+    expect(await count("SELECT count(*) AS n FROM budget_reservation WHERE mandate_id = $1 AND state = 'HELD'", [mandateId])).toBe(1);
+  });
+
   it('marks UNKNOWN_OUTCOME when the capture times out', async () => {
     const payments = new FakePayments();
     const { svc, view } = await pending(payments);
@@ -589,6 +607,16 @@ describe('reconcile', () => {
     expect(await svc.reconcile(view.id)).toMatchObject({ status: 'UNKNOWN_OUTCOME', order: { state: 'UNKNOWN_OUTCOME' } });
     expect(await reservation(mandateId)).toBe('HELD');
     expect(await count("SELECT count(*) AS n FROM audit_log WHERE subject_id = $1 AND action = 'payment.amount_mismatch'", [view.id])).toBe(1);
+  });
+
+  it('treats a COMPLETED order whose capture is still PENDING as pending, not as an amount mismatch', async () => {
+    const payments = new FakePayments();
+    const { svc, view, mandateId } = await allowed(payments);
+    payments.getResult = { providerOrderId: 'PP123', status: 'COMPLETED', capturePending: true };
+    expect(await svc.reconcile(view.id)).toMatchObject({ status: 'PAYMENT_PENDING', order: { state: 'PAYMENT_PENDING', providerStatus: 'COMPLETED' } });
+    expect(await reservation(mandateId)).toBe('HELD');
+    expect(await count("SELECT count(*) AS n FROM audit_log WHERE subject_id = $1 AND action = 'payment.amount_mismatch'", [view.id])).toBe(0);
+    expect(payments.captures).toHaveLength(0);
   });
 
   it('fails a VOIDED order and releases the budget', async () => {
