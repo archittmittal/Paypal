@@ -89,7 +89,7 @@ Pinned versions are decided at scaffold time and recorded here then, against the
 
 | # | Item |
 |---|---|
-| 1 | Render database plan limits: storage, connection count, backup and retention policy |
+| 1 | Render database plan limits. **Partly answered (Render docs, 2026-11-07):** Free Postgres has a fixed 1 GB disk, no backups, expires 30 days after creation (14-day grace), one per workspace; Free web services sleep after 15 idle minutes and have no pre-deploy command or Shell. See [deployment-render.md](deployment-render.md#free-plan-limits). Still open: connection count per plan, and whether the database owner has `CREATEROLE` (needed by `pnpm db:roles`) |
 | 2 | The exact PayPal idempotency request header name and its semantics on retry |
 | 3 | ~~Whether autonomous capture via a saved or vaulted payment method works in sandbox~~ Answered: yes in sandbox, see [spike-results.md](spike-results.md). Live still needs PayPal's approval for reference transactions |
 | 4 | Whether PayPal's remote MCP commerce tools work in sandbox |

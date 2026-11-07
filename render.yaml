@@ -1,7 +1,20 @@
-# Render Blueprint: the API web service and its Postgres database.
-# Deploy: Render dashboard > New > Blueprint > pick this repo. Runbook: docs/deploy.md.
-# Secrets are never in this file: every `sync: false` value is entered in the dashboard on first deploy.
-# Spec: https://render.com/docs/blueprint-spec
+# Render Blueprint: the API web service, the web app and their Postgres database.
+# Deploy: Render dashboard > New > Blueprint > pick this repo. Full guide: docs/deployment-render.md.
+# Secrets are never in this file: every `sync: false` value is entered in the dashboard on first deploy
+# (Render ignores `sync: false` variables on later Blueprint syncs).
+# Spec: https://render.com/docs/blueprint-spec   Validate: render blueprints validate render.yaml
+#
+# Database credentials are split (docs/deployment-render.md, "Database and migrations"):
+#   - The database owner (the user Render creates with mandate-db) runs migrations and owns every table. Its URL is
+#     used ONLY by the operator commands `pnpm db:migrate` / `db:roles` / `db:seed`, from a trusted machine, as
+#     MIGRATION_DATABASE_URL. It is never set on mandate-api.
+#   - mandate-api logs in as the restricted role created by `pnpm db:roles` (member of mandate_runtime only).
+#     So DATABASE_URL is NOT `fromDatabase: connectionString`, which would hand the API the owner's password.
+# Migrations do not run on boot. The free instance type has no preDeployCommand (paid only), and even on a paid
+# plan a preDeployCommand shares this service's environment, so the owner's URL would sit in the API's runtime.
+# Instead the API refuses to start unless the database has exactly its migrations, or is only ahead of it (migrated
+# for the next release), and its login is least-privilege (apps/api/src/db/startup.ts). A refused start fails the
+# deploy and Render keeps the previous version serving. After running `pnpm db:migrate`, trigger a Manual Deploy.
 
 services:
   - type: web
@@ -9,18 +22,22 @@ services:
     runtime: node
     plan: free
     region: singapore
-    # pnpm comes from the packageManager field in package.json via corepack.
+    # pnpm comes from the packageManager field in package.json via corepack. No build step: the API runs its
+    # TypeScript sources through Node's type stripping (Node >= 22.18).
     buildCommand: corepack enable && pnpm install --frozen-lockfile
-    # Migrations run before the server starts. Safe on every boot: they are idempotent and serialised by an
-    # advisory lock, and the deploy fails (keeping the old version live) if a migration fails.
-    startCommand: pnpm db:migrate && pnpm --filter @mandate/api start
+    startCommand: pnpm --filter @mandate/api start
+    # Liveness only (no database, no PayPal call). Readiness with the database check is /ready. The start-up gate
+    # already refuses a missing or incompatible database before the server listens.
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
       # Node 22.18+ strips TypeScript types by default; the API runs from source (apps/api, PR #30).
       - key: NODE_VERSION
         value: 24.16.0
-      # Render routes traffic to 0.0.0.0:$PORT; the API defaults to loopback otherwise.
+      # Fail-closed configuration: DATABASE_URL required, owner credentials refused, least-privilege login enforced.
+      - key: NODE_ENV
+        value: production
+      # Render routes traffic to 0.0.0.0:$PORT (Render sets PORT); the API defaults to loopback otherwise.
       - key: HOST
         value: 0.0.0.0
       # The web app's origin, e.g. https://mandate-web.onrender.com (comma-separate several). Unset: no CORS.
@@ -33,10 +50,10 @@ services:
         sync: false
       - key: LOG_LEVEL
         value: info
+      # mandate-db's INTERNAL URL with the user and password of the restricted login from `pnpm db:roles`:
+      # postgresql://mandate_app:<password>@<internal host>/mandate  (docs/deployment-render.md, step 6).
       - key: DATABASE_URL
-        fromDatabase:
-          name: mandate-db
-          property: connectionString
+        sync: false
       # PayPal sandbox app credentials (packages/payments is sandbox-only; there is no live setting).
       - key: PAYPAL_CLIENT_ID
         sync: false
@@ -78,5 +95,9 @@ databases:
     databaseName: mandate
     user: mandate
     postgresMajorVersion: "17"
-    # No external connections: only services in this Render account can reach the database.
+    # Free plan: expires 30 days after creation, no backups, one per workspace (docs/deployment-render.md).
+    # `user` is the owner role: it runs migrations and must never be the API's login.
+    # No external connections ([] blocks every external IP; internal connections from services in this region are
+    # unaffected). For an operator migration, add your own IP/32 temporarily in the dashboard (Access Control), run
+    # the command, then remove it again yourself.
     ipAllowList: []

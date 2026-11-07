@@ -56,7 +56,7 @@ render.yaml       Render Blueprint: API web service + Postgres (secrets are sync
 ```
 
 ## Commands
-Real: `pnpm install` · `docker compose up -d` (Postgres) · `pnpm db:migrate` · `pnpm db:seed` · `pnpm dev` (API on :3000, watch mode) · `pnpm lint` · `pnpm typecheck` · `pnpm test` (Vitest + coverage) · `pnpm smoke:offline` (runs each package's offline smoke, CI) · `pnpm smoke:live` (packages that call a real provider; never CI) · `pnpm --filter @mandate/payments spike <cmd>` (real PayPal sandbox; see packages/payments/smoke/spike.ts).
+Real: `pnpm install` · `docker compose up -d` (Postgres) · `pnpm db:migrate` · `pnpm db:status` · `pnpm db:roles` (least-privilege API login) · `pnpm db:seed` (operator commands; in production they need `MIGRATION_DATABASE_URL`, see docs/deployment-render.md) · `pnpm dev` (API on :3000, watch mode) · `pnpm lint` · `pnpm typecheck` · `pnpm test` (Vitest + coverage) · `pnpm smoke:offline` (runs each package's offline smoke, CI) · `pnpm smoke:live` (packages that call a real provider; never CI) · `pnpm --filter @mandate/payments spike <cmd>` (real PayPal sandbox; see packages/payments/smoke/spike.ts).
 `pnpm eval` (fake: harness only) · `pnpm eval --live` (real model; results/). Planned: Elasticsearch in compose (optional profile).
 
 ## Git workflow

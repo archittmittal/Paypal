@@ -11,6 +11,8 @@
     "dev:web": "pnpm --filter @mandate/web dev",
     "db:migrate": "pnpm --filter @mandate/api db:migrate",
     "db:seed": "pnpm --filter @mandate/api db:seed",
+    "db:status": "pnpm --filter @mandate/api db:status",
+    "db:roles": "pnpm --filter @mandate/api db:roles",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json && pnpm -r --if-present typecheck",
     "test": "vitest run --coverage",
